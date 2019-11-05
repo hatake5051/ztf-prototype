@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"mime"
 	"net/http"
 	"net/url"
+	"soturon/util"
 	"strings"
+	"sync"
 )
 
 type authzServer struct {
@@ -24,9 +27,8 @@ type clientConfig struct {
 type pef struct {
 	authzServer  authzServer
 	clientConfig clientConfig
-	state        string
-	accessToken  string
-	scope        []string
+	states       stateManager
+	sessions     sessionManager
 }
 
 func (p *pef) index(w http.ResponseWriter, r *http.Request) {
@@ -38,13 +40,12 @@ func (p *pef) index(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *pef) redirectToAuthorizer(w http.ResponseWriter, r *http.Request) {
-	p.accessToken = ""
-	p.state = "RANDOM_STRING"
+	state := p.states.create()
 	v := url.Values{
 		"response_type": {"code"},
 		"client_id":     {p.clientConfig.clientID},
 		"redirect_uri":  {p.clientConfig.redirectURL},
-		"state":         {p.state},
+		"state":         {state},
 	}
 	authorizeURL := url.URL{
 		Scheme:   "http",
@@ -65,15 +66,17 @@ func (p *pef) exchangeCodeForToken(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%v", e)
 		return
 	}
-	if p.state != r.FormValue("state") {
+	state := r.FormValue("state")
+	if !p.states.find(state) {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "state is not match; expect: %v, but: %v", p.state, r.FormValue("state"))
+		fmt.Fprintf(w, "bad state value: %v", state)
 		return
 	}
+	p.states.delete(state)
 	code := r.FormValue("code")
 	if code == "" {
 		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintf(w, "code is empty")
+		fmt.Fprintf(w, "code in request is empty")
 		return
 	}
 	v := url.Values{
@@ -125,8 +128,34 @@ func (p *pef) exchangeCodeForToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, "Authorization: %v %v", t.TokenType, t.AccessToken)
+	sessionID := p.sessions.createID()
+	p.sessions.set(sessionID, "token", t)
+	http.SetCookie(w, p.sessions.createCookie(sessionID))
+
+	fmt.Fprint(w, `
+	<html><head/><body>
+	<a href="/showToken">show token</a>
+	</body></html>`)
 	return
+}
+
+func (p *pef) showToken(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(p.sessions.sessionKey())
+	if err != nil {
+		fmt.Fprintf(w, "nothing cookie")
+		return
+	}
+	session, ok := p.sessions.find(cookie.Value)
+	if !ok {
+		fmt.Fprintf(w, "invalid cookie %#v", cookie)
+		return
+	}
+	t, _ := session.find("token")
+	log.Printf("%T", t)
+	if t, ok := t.(*token); ok {
+		fmt.Fprintf(w, "Authorization: %v %v", t.TokenType, t.AccessToken)
+		return
+	}
 
 }
 
@@ -135,6 +164,7 @@ func (p *pef) newMux() *http.ServeMux {
 	mux.HandleFunc("/", p.index)
 	mux.HandleFunc("/authorize", p.redirectToAuthorizer)
 	mux.HandleFunc("/callback", p.exchangeCodeForToken)
+	mux.HandleFunc("/showToken", p.showToken)
 	return mux
 }
 
@@ -151,6 +181,142 @@ func NewPEF() *http.ServeMux {
 			clientSecret: "oauth-client-secret-1",
 			redirectURL:  "http://localhost:9000/callback",
 		},
+		states:   newStateManager(12),
+		sessions: newSessionManager("policy-enforcement-front-session-id"),
 	}
 	return pef.newMux()
+}
+
+type sessionManager interface {
+	sessionKey() string
+	createID() string
+	delete(string)
+	find(string) (session, bool)
+	set(sessionID, key string, value interface{}) bool
+	createCookie(string) *http.Cookie
+}
+
+func newSessionManager(cookieName string) sessionManager {
+	return &sesManager{
+		cookieValLength: 30,
+		cookieName:      cookieName,
+		sessions:        make(map[string]session),
+	}
+}
+
+type session map[string]interface{}
+
+func newSession() session {
+	return make(map[string]interface{})
+}
+func (s *session) find(key string) (interface{}, bool) {
+	v, ok := (map[string]interface{}(*s))[key]
+	return v, ok
+}
+
+func (s *session) set(key string, value interface{}) bool {
+	(map[string]interface{}(*s))[key] = value
+	return true
+}
+
+type sesManager struct {
+	cookieValLength int
+	cookieName      string
+	sessions        map[string]session
+	mux             sync.RWMutex
+}
+
+func (s *sesManager) sessionKey() string {
+	return s.cookieName
+}
+
+func (s *sesManager) createID() string {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	var sessionID string
+	for ok := true; ok; {
+		sessionID = util.RandString(s.cookieValLength)
+		_, ok = s.sessions[sessionID]
+	}
+	s.sessions[sessionID] = newSession()
+	return sessionID
+}
+
+func (s *sesManager) delete(sessionID string) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	delete(s.sessions, sessionID)
+}
+
+func (s *sesManager) find(sessionID string) (session, bool) {
+	s.mux.RLock()
+	defer s.mux.RUnlock()
+	session, ok := s.sessions[sessionID]
+	return session, ok
+}
+
+func (s *sesManager) set(sessionID, key string, value interface{}) bool {
+	s.mux.RLock()
+	defer s.mux.RUnlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return false
+	}
+	return session.set(key, value)
+}
+
+func (s *sesManager) createCookie(sessionID string) *http.Cookie {
+	s.mux.RLock()
+	defer s.mux.RUnlock()
+	_, ok := s.sessions[sessionID]
+	if !ok {
+		return nil
+	}
+	return &http.Cookie{
+		Name:  s.cookieName,
+		Value: sessionID,
+	}
+}
+
+type stateManager interface {
+	create() string
+	delete(string)
+	find(string) bool
+}
+
+func newStateManager(stateLength int) stateManager {
+	return &sManager{
+		stateLength: stateLength,
+		states:      make(map[string]bool),
+	}
+}
+
+type sManager struct {
+	stateLength int
+	states      map[string]bool
+	mux         sync.RWMutex
+}
+
+func (s *sManager) create() string {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	state := util.RandString(s.stateLength)
+	for s.states[state] {
+		state = util.RandString(s.stateLength)
+	}
+	s.states[state] = true
+	return state
+}
+
+func (s *sManager) delete(state string) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	delete(s.states, state)
+
+}
+
+func (s *sManager) find(state string) bool {
+	s.mux.RLock()
+	defer s.mux.RUnlock()
+	return s.states[state]
 }
