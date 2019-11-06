@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"soturon/util"
 )
 
 type cap struct {
@@ -26,7 +27,7 @@ func (c *cap) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var reqid = "REQUEST_ID"
+	var reqid = util.RandString(8)
 	c.requests[reqid] = r
 	fmt.Fprintf(w, `
 	<html><head/><body>
@@ -39,7 +40,6 @@ func (c *cap) authorize(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *cap) approve(w http.ResponseWriter, r *http.Request) {
-
 	reqid := r.FormValue("reqid")
 	prevr, ok := c.requests[reqid]
 	if !ok {
@@ -52,7 +52,7 @@ func (c *cap) approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if prevr.FormValue("response_type") == "code" {
-		code := "RANDOM_CODE"
+		code := util.RandString(12)
 		c.codes[code] = c.clients[prevr.FormValue("client_id")]
 
 		unescape, err := url.PathUnescape(prevr.FormValue("redirect_uri"))
@@ -72,7 +72,6 @@ func (c *cap) approve(w http.ResponseWriter, r *http.Request) {
 		callbackURL.RawQuery = v.Encode()
 		http.Redirect(w, r, callbackURL.String(), http.StatusFound)
 	}
-
 }
 
 func (c *cap) token(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +94,7 @@ func (c *cap) token(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t := &token{
-			AccessToken: "ACCESS_TOKEN",
+			AccessToken: "ACCESS_TOKEN_" + util.RandString(20),
 			TokenType:   "Bearer",
 		}
 		tJSON, err := json.Marshal(t)

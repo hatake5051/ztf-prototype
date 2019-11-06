@@ -1,33 +1,15 @@
 package infra
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
-	"mime"
 	"net/http"
 	"net/url"
 	"soturon/util"
-	"strings"
 	"sync"
 )
 
-type authzServer struct {
-	authzEndpoint *url.URL
-	tokenEndpoint *url.URL
-}
-
-type clientConfig struct {
-	clientID     string
-	clientSecret string
-	redirectURL  string
-}
-
 type pef struct {
-	authzServer  authzServer
 	clientConfig clientConfig
-	states       stateManager
 	sessions     sessionManager
 }
 
@@ -40,20 +22,11 @@ func (p *pef) index(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *pef) redirectToAuthorizer(w http.ResponseWriter, r *http.Request) {
-	state := p.states.create()
-	v := url.Values{
-		"response_type": {"code"},
-		"client_id":     {p.clientConfig.clientID},
-		"redirect_uri":  {p.clientConfig.redirectURL},
-		"state":         {state},
-	}
-	authorizeURL := url.URL{
-		Scheme:   "http",
-		Host:     p.authzServer.authzEndpoint.Host,
-		Path:     p.authzServer.authzEndpoint.Path,
-		RawQuery: v.Encode(),
-	}
-	http.Redirect(w, r, authorizeURL.String(), http.StatusFound)
+	client := p.clientConfig.Client(r.Context())
+	sessionID := p.sessions.createID()
+	p.sessions.set(sessionID, "client", client)
+	http.SetCookie(w, p.sessions.createCookie(sessionID))
+	client.redirectToAuthorizer(w, r)
 }
 
 type token struct {
@@ -62,80 +35,25 @@ type token struct {
 }
 
 func (p *pef) exchangeCodeForToken(w http.ResponseWriter, r *http.Request) {
-	if e := r.FormValue("error"); e != "" {
-		fmt.Fprintf(w, "%v", e)
-		return
-	}
-	state := r.FormValue("state")
-	if !p.states.find(state) {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "bad state value: %v", state)
-		return
-	}
-	p.states.delete(state)
-	code := r.FormValue("code")
-	if code == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintf(w, "code in request is empty")
-		return
-	}
-	v := url.Values{
-		"grant_type":   {"authorization_code"},
-		"code":         {code},
-		"redirect_uri": {p.clientConfig.redirectURL},
-	}
-	req, err := http.NewRequest("POST", p.authzServer.tokenEndpoint.String(), strings.NewReader(v.Encode()))
+	cookie, err := r.Cookie(p.sessions.sessionKey())
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "server internal error: %v", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(url.QueryEscape(p.clientConfig.clientID), url.QueryEscape(p.clientConfig.clientSecret))
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "request to tokenEndpoint error: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "error: %v", err)
-		return
-	}
-	if status := resp.StatusCode; status < 200 || status >= 300 {
-		w.WriteHeader(status)
-		fmt.Fprintf(w, "error: %v", status)
-		return
-	}
-	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "mime.parsemedia error: %v", err)
-		return
-	}
-	if contentType != "application/json" {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "not supported content-type: %v", contentType)
-		return
-	}
-	var t = &token{}
-	if err = json.Unmarshal(body, t); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "json parse failed %v", body)
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "nothing cookie")
 		return
 	}
 
-	sessionID := p.sessions.createID()
-	p.sessions.set(sessionID, "token", t)
-	http.SetCookie(w, p.sessions.createCookie(sessionID))
-
-	fmt.Fprint(w, `
-	<html><head/><body>
-	<a href="/showToken">show token</a>
-	</body></html>`)
+	session, ok := p.sessions.find(cookie.Value)
+	if !ok {
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "invalid cookie %#v", cookie)
+		return
+	}
+	cc, _ := session.find("client")
+	c, ok := cc.(*client)
+	if !ok {
+		fmt.Fprintf(w, "error: %v", cc)
+	}
+	c.exchangeCodeForToken(w, r)
 	return
 }
 
@@ -150,13 +68,14 @@ func (p *pef) showToken(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "invalid cookie %#v", cookie)
 		return
 	}
-	t, _ := session.find("token")
-	log.Printf("%T", t)
-	if t, ok := t.(*token); ok {
+	cc, _ := session.find("client")
+	if c, ok := cc.(*client); ok {
+		t, _ := tokenFromContext(c.ctx)
 		fmt.Fprintf(w, "Authorization: %v %v", t.TokenType, t.AccessToken)
 		return
 	}
-
+	fmt.Fprintf(w, "Errrrrrr")
+	return
 }
 
 func (p *pef) newMux() *http.ServeMux {
@@ -172,16 +91,15 @@ func NewPEF() *http.ServeMux {
 	authURL, _ := url.Parse("http://localhost:9001/authorize")
 	tokenURL, _ := url.Parse("http://localhost:9001/token")
 	pef := &pef{
-		authzServer: authzServer{
-			authzEndpoint: authURL,
-			tokenEndpoint: tokenURL,
-		},
 		clientConfig: clientConfig{
 			clientID:     "oauth-client-1",
 			clientSecret: "oauth-client-secret-1",
 			redirectURL:  "http://localhost:9000/callback",
+			endpoint: authServer{
+				authz: authURL,
+				token: tokenURL,
+			},
 		},
-		states:   newStateManager(12),
 		sessions: newSessionManager("policy-enforcement-front-session-id"),
 	}
 	return pef.newMux()
@@ -276,47 +194,4 @@ func (s *sesManager) createCookie(sessionID string) *http.Cookie {
 		Name:  s.cookieName,
 		Value: sessionID,
 	}
-}
-
-type stateManager interface {
-	create() string
-	delete(string)
-	find(string) bool
-}
-
-func newStateManager(stateLength int) stateManager {
-	return &sManager{
-		stateLength: stateLength,
-		states:      make(map[string]bool),
-	}
-}
-
-type sManager struct {
-	stateLength int
-	states      map[string]bool
-	mux         sync.RWMutex
-}
-
-func (s *sManager) create() string {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-	state := util.RandString(s.stateLength)
-	for s.states[state] {
-		state = util.RandString(s.stateLength)
-	}
-	s.states[state] = true
-	return state
-}
-
-func (s *sManager) delete(state string) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-	delete(s.states, state)
-
-}
-
-func (s *sManager) find(state string) bool {
-	s.mux.RLock()
-	defer s.mux.RUnlock()
-	return s.states[state]
 }
