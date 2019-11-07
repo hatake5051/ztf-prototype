@@ -1,6 +1,9 @@
 package client
 
-import "context"
+import (
+	"context"
+	"soturon/token"
+)
 
 type contextKey int
 
@@ -12,8 +15,8 @@ const (
 type RContext interface {
 	WithState(string)
 	State() (string, bool)
-	WithToken(*Token)
-	Token() (*Token, bool)
+	WithToken(*token.Token)
+	Token() (*token.Token, bool)
 }
 
 func NewRContext(ctx context.Context) RContext {
@@ -33,11 +36,11 @@ func (rc *rcontext) State() (state string, ok bool) {
 	return
 }
 
-func (rc *rcontext) WithToken(t *Token) {
+func (rc *rcontext) WithToken(t *token.Token) {
 	rc.Context = context.WithValue(rc.Context, tokenKey, t)
 }
 
-func (rc *rcontext) Token() (t *Token, ok bool) {
-	t, ok = rc.Context.Value(tokenKey).(*Token)
+func (rc *rcontext) Token() (t *token.Token, ok bool) {
+	t, ok = rc.Context.Value(tokenKey).(*token.Token)
 	return
 }

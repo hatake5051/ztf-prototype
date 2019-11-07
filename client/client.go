@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/http"
+	"soturon/token"
 	"soturon/util"
 )
 
@@ -82,7 +83,7 @@ func (c *client) authzCodeGrantVerify(r *http.Request) (string, error) {
 	return code, nil
 }
 
-func (c *client) extractTokenFrom(resp *http.Response) (*Token, error) {
+func (c *client) extractTokenFrom(resp *http.Response) (*token.Token, error) {
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -99,7 +100,7 @@ func (c *client) extractTokenFrom(resp *http.Response) (*Token, error) {
 	if contentType != "application/json" {
 		return nil, fmt.Errorf("not supported Content-Type: %v", contentType)
 	}
-	t := &Token{}
+	t := &token.Token{}
 	if err = json.Unmarshal(body, t); err != nil {
 		return nil, err
 	}
