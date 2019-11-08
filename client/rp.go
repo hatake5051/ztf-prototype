@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -12,7 +13,8 @@ import (
 
 type RP interface {
 	RedirectToAuthenticator(w http.ResponseWriter, r *http.Request)
-	ExchangeCodeForIDToken(w http.ResponseWriter, r *http.Request) error
+	ExchangeCodeForIDToken(r *http.Request) error
+	Context() context.Context
 }
 
 func (c Config) RP(rctx RContext) RP {
@@ -26,7 +28,7 @@ func (rp *client) RedirectToAuthenticator(w http.ResponseWriter, r *http.Request
 	rp.RedirectToAuthorizer(w, r)
 }
 
-func (rp *client) ExchangeCodeForIDToken(w http.ResponseWriter, r *http.Request) error {
+func (rp *client) ExchangeCodeForIDToken(r *http.Request) error {
 	code, err := rp.authzCodeGrantVerify(r)
 	if err != nil {
 		return err

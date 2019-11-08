@@ -8,7 +8,7 @@ import (
 
 func main() {
 	go func() {
-		if err := http.ListenAndServe(":9000", actors.NewPEF()); err != nil {
+		if err := http.ListenAndServe(":9000", actors.NewPEP()); err != nil {
 			log.Fatal(err)
 		}
 	}()

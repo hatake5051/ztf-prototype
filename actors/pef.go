@@ -12,14 +12,7 @@ import (
 type pef struct {
 	conf     client.Config
 	sessions pefSessionManager
-}
-
-func (p *pef) index(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte(`
-	<html><head/><body>
-		<a href="http://localhost:9000/authorize">authorize</a>
-	</body></html>
-	`))
+	next     http.Handler
 }
 
 func (p *pef) authzCodeFrontChannel(w http.ResponseWriter, r *http.Request) {
@@ -37,15 +30,13 @@ func (p *pef) authzCodeBackChannel(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "invalid sessionID in the cookie")
 		return
 	}
-	if err := c.ExchangeCodeForToken(w, r); err != nil {
+	if err := c.ExchangeCodeForToken(r); err != nil {
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "%v", err)
 		return
 	}
-	fmt.Fprint(w, `<html><head/><body>
-	この後は context-aware アクセス管理を行う。一時的にリターン<br>
-	<a href="/fetch">コンテキストの取得</a>
-	</body></html>`)
+	p.next.ServeHTTP(w, r.WithContext(c.Context()))
+	return
 }
 
 func (p *pef) fetchContext(w http.ResponseWriter, r *http.Request) {
@@ -70,9 +61,7 @@ func (p *pef) fetchContext(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-func (p *pef) newMux() *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", p.index)
+func (p *pef) newMux(mux *http.ServeMux) *http.ServeMux {
 	mux.HandleFunc("/authorize", p.authzCodeFrontChannel)
 	mux.HandleFunc("/callback", p.authzCodeBackChannel)
 	mux.HandleFunc("/fetch", p.fetchContext)
@@ -101,7 +90,7 @@ func NewPEF() *http.ServeMux {
 			cookieName: "policy-enforcement-front-session-id",
 		},
 	}
-	return pef.newMux()
+	return pef.newMux(http.NewServeMux())
 }
 
 type pefSessionManager struct {

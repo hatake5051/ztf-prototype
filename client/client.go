@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,8 +14,9 @@ import (
 
 type Client interface {
 	RedirectToAuthorizer(w http.ResponseWriter, r *http.Request)
-	ExchangeCodeForToken(w http.ResponseWriter, r *http.Request) error
+	ExchangeCodeForToken(r *http.Request) error
 	RequestWithToken(method, url string) (*http.Request, bool)
+	Context() context.Context
 }
 
 func (c Config) Client(rctx RContext) Client {
@@ -27,6 +29,10 @@ func (c Config) Client(rctx RContext) Client {
 type client struct {
 	rctx RContext
 	conf Config
+}
+
+func (c *client) Context() context.Context {
+	return c.rctx.To()
 }
 
 func (c *client) RequestWithToken(method, url string) (*http.Request, bool) {
@@ -48,7 +54,7 @@ func (c *client) RedirectToAuthorizer(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, c.conf.AuthzCodeGrantURL(state), http.StatusFound)
 }
 
-func (c *client) ExchangeCodeForToken(w http.ResponseWriter, r *http.Request) error {
+func (c *client) ExchangeCodeForToken(r *http.Request) error {
 	code, err := c.authzCodeGrantVerify(r)
 	if err != nil {
 		return err

@@ -16,7 +16,25 @@ type cap struct {
 	rp *capRP
 }
 
+type nextCap struct {
+	*cap
+}
+
+func (n *nextCap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	n.authnToAuthz(w, r)
+}
+
 func (c *cap) authnToAuthz(w http.ResponseWriter, r *http.Request) {
+	rctx := client.NewRContext(r.Context())
+	_, ok := rctx.IDToken()
+	if !ok { // yet authenticate
+		rctx.WithRequest(r)
+		c.rp.authnCodeFrontChannel(rctx, w, r)
+		return
+	}
+	if backReq, ok := rctx.Request(); ok {
+		c.Authorize(w, backReq.WithContext(rctx.To()))
+	}
 
 }
 
@@ -43,12 +61,12 @@ func (c *cap) protectedResource(w http.ResponseWriter, r *http.Request) {
 
 func (c *cap) newMux() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/authorize", c.Authorize)
+	mux.HandleFunc("/authorize", c.authnToAuthz)
 	mux.HandleFunc("/token", c.IssueToken)
 	mux.HandleFunc("/approve", c.Approve)
 	mux.HandleFunc("/introspect", c.IntroSpect)
 	mux.HandleFunc("/resources", c.protectedResource)
-	mux.HandleFunc("/authenticate", c.rp.authnCodeFrontChannel)
+	mux.HandleFunc("/authenticate", c.rp.authnCodeFrontChannelWithoutRContext)
 	mux.HandleFunc("/callback", c.rp.authnCodeBackChannel)
 	return mux
 }
@@ -84,21 +102,32 @@ func NewCAP() *http.ServeMux {
 			},
 		},
 	}
+	cap.rp.next = &nextCap{cap: cap}
 	return cap.newMux()
 }
 
 type capRP struct {
 	conf     client.Config
 	sessions capSessionManager
+	next     http.Handler
 }
 
-func (c *capRP) authnCodeFrontChannel(w http.ResponseWriter, r *http.Request) {
-	rp := c.conf.RP(client.NewRContext(r.Context()))
+func (c *capRP) authnCodeFrontChannel(rctx client.RContext, w http.ResponseWriter, r *http.Request) {
+	rp := c.conf.RP(rctx)
 	sessionID := c.sessions.UniqueID()
 	c.sessions.setRP(sessionID, rp)
 	http.SetCookie(w, &http.Cookie{Name: c.sessions.cookieName, Value: sessionID})
 	rp.RedirectToAuthenticator(w, r)
 }
+
+// r from end-user who is redirected by PEF
+// w to end-user and w's status code is 302(Location authenticate point at IdP)
+func (c *capRP) authnCodeFrontChannelWithoutRContext(w http.ResponseWriter, r *http.Request) {
+	c.authnCodeFrontChannel(client.NewRContext(r.Context()), w, r)
+}
+
+// r from end-user who is redirected by IdP, with authzCode
+//  w to end-user
 func (c *capRP) authnCodeBackChannel(w http.ResponseWriter, r *http.Request) {
 	rp, ok := c.sessions.extractRPFromCookie(r)
 	if !ok {
@@ -106,12 +135,13 @@ func (c *capRP) authnCodeBackChannel(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "invalid sessionID in the cookie")
 		return
 	}
-	if err := rp.ExchangeCodeForIDToken(w, r); err != nil {
+	// back-chennel
+	if err := rp.ExchangeCodeForIDToken(r); err != nil {
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "%v", err)
 		return
 	}
-	fmt.Fprint(w, "authentication completed!!!")
+	c.next.ServeHTTP(w, r.WithContext(rp.Context()))
 }
 
 type capSessionManager struct {
