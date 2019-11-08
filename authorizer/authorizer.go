@@ -3,6 +3,7 @@ package authorizer
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"soturon/client"
 )
@@ -30,6 +31,7 @@ type authorizer struct {
 }
 
 func (a *authorizer) Authorize(w http.ResponseWriter, r *http.Request) {
+	log.Printf("%#v", r)
 	c, err := a.front.Consent(w, r)
 	if err != nil {
 		w.WriteHeader(400)
@@ -49,6 +51,7 @@ func (a *authorizer) IssueToken(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "cannoe return token")
+		return
 	}
 	tJSON, err := json.Marshal(t)
 	if err != nil {

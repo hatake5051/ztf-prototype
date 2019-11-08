@@ -13,7 +13,7 @@ import (
 
 type AuthzCodeIssuer interface {
 	Consent(w http.ResponseWriter, r *http.Request) (*client.Config, error)
-	IssueCode(w http.ResponseWriter, r *http.Request) (string, *client.Config)
+	IssueCode(w http.ResponseWriter, r *http.Request) (string, map[string]string)
 }
 
 func NewAuthzCodeIssuer(registered ClientRegistration) AuthzCodeIssuer {
@@ -51,7 +51,7 @@ func (a *authzCodeIssuer) Consent(w http.ResponseWriter, r *http.Request) (*clie
 	return claims, nil
 }
 
-func (a *authzCodeIssuer) IssueCode(w http.ResponseWriter, r *http.Request) (string, *client.Config) {
+func (a *authzCodeIssuer) IssueCode(w http.ResponseWriter, r *http.Request) (string, map[string]string) {
 	if r.FormValue("approve") != "Approve" {
 		return "", nil
 	}
@@ -77,14 +77,15 @@ func (a *authzCodeIssuer) IssueCode(w http.ResponseWriter, r *http.Request) (str
 			apperovedScopes = append(apperovedScopes, s)
 		}
 	}
-	approvedConf := &client.Config{
-		ClientID: c.ClientID,
-		Scopes:   apperovedScopes,
+	approved := map[string]string{
+		"clientID": c.ClientID,
+		"scopes":   strings.Join(apperovedScopes, " "),
+		"user":     r.FormValue("username"),
 	}
 	code := util.RandString(8)
 	param.redirectURI.RawQuery = url.Values{"code": {code}, "state": {param.state}}.Encode()
 	http.Redirect(w, r, param.redirectURI.String(), http.StatusFound)
-	return code, approvedConf
+	return code, approved
 }
 
 func (a *authzCodeIssuer) verifyClient(r *http.Request) (*client.Config, error) {
