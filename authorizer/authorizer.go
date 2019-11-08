@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"soturon/client"
-
-	jwt "github.com/dgrijalva/jwt-go"
+	"soturon/token"
 )
 
 type Authorizer interface {
@@ -67,13 +66,13 @@ func (a *authorizer) IssueToken(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "cannot marshal token to JSON")
 		return
 	}
-	a.tokens.Add(t)
+	a.tokens.Add(t, map[string]string{"": ""})
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(tJSON)
 }
 
 func (a *authorizer) IntroSpect(w http.ResponseWriter, r *http.Request) {
-	t, err := a.tokens.Find(r.FormValue("token"))
+	t, _, err := a.tokens.Find(r.FormValue("token"))
 	if err != nil {
 		w.WriteHeader(404)
 		fmt.Fprintf(w, "introspect %v", err)
@@ -82,12 +81,8 @@ func (a *authorizer) IntroSpect(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Correct! %#v", t)
 }
 
-func consentPage(c *client.Config, idtoken *jwt.Token) string {
-	claims, ok := idtoken.Claims.(jwt.MapClaims)
-	if !ok {
-		return "errorrrrr"
-	}
-	hello := fmt.Sprintf("%v さんこんにちは。<Br> id-token: %#v", claims["sub"], claims)
+func consentPage(c *client.Config, idtoken *token.IDToken) string {
+	hello := fmt.Sprintf("%v さんこんにちは。<Br> id-token: %#v", idtoken.Claims["sub"], idtoken)
 
 	reqScope := "<ul>"
 	for _, s := range c.Scopes {

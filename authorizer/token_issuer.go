@@ -57,7 +57,7 @@ func (t *tokenIssuer) AddCode(code string, approved map[string]string) {
 }
 
 type IDTokenIssuer interface {
-	IDToken(r *http.Request) (*token.TokenWithID, bool)
+	IDToken(r *http.Request) (*token.IDToken, bool)
 	AddCode(code string, c map[string]string)
 }
 
@@ -68,7 +68,7 @@ func NewIDTokenIssuer(registered ClientRegistration) IDTokenIssuer {
 	}
 }
 
-func (t *tokenIssuer) IDToken(r *http.Request) (*token.TokenWithID, bool) {
+func (t *tokenIssuer) IDToken(r *http.Request) (*token.IDToken, bool) {
 	clientID, clientSecret, ok := r.BasicAuth()
 	if !ok {
 		return nil, false
@@ -87,7 +87,7 @@ func (t *tokenIssuer) IDToken(r *http.Request) (*token.TokenWithID, bool) {
 		if !strings.Contains(c["scopes"], "openid") {
 			return nil, false
 		}
-		t := &token.TokenWithID{
+		t := &token.IDToken{
 			Token: token.Token{AccessToken: util.RandString(30),
 				TokenType: "Bearer",
 				Scope:     c["scopes"],

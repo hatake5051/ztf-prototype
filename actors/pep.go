@@ -45,7 +45,7 @@ func NewPEP() *http.ServeMux {
 					Authz: authURL,
 					Token: tokenURL,
 				},
-				Scopes: []string{"foo", "bar"},
+				Scopes: []string{"ipaddress", "useragent"},
 			},
 			sessions: pefSessionManager{
 				Manager:    session.NewManager(),

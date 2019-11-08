@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 	"soturon/token"
-
-	"github.com/dgrijalva/jwt-go"
 )
 
 type contextKey int
@@ -22,8 +20,8 @@ type RContext interface {
 	State() (string, bool)
 	WithToken(*token.Token)
 	Token() (*token.Token, bool)
-	WithIDToken(*jwt.Token)
-	IDToken() (*jwt.Token, bool)
+	WithIDToken(*token.IDToken)
+	IDToken() (*token.IDToken, bool)
 	WithRequest(r *http.Request)
 	Request() (r *http.Request, ok bool)
 	To() context.Context
@@ -59,12 +57,12 @@ func (rc *rcontext) Token() (t *token.Token, ok bool) {
 	return
 }
 
-func (rc *rcontext) WithIDToken(t *jwt.Token) {
+func (rc *rcontext) WithIDToken(t *token.IDToken) {
 	rc.Context = context.WithValue(rc.Context, idtokenKey, t)
 }
 
-func (rc *rcontext) IDToken() (t *jwt.Token, ok bool) {
-	t, ok = rc.Context.Value(idtokenKey).(*jwt.Token)
+func (rc *rcontext) IDToken() (t *token.IDToken, ok bool) {
+	t, ok = rc.Context.Value(idtokenKey).(*token.IDToken)
 	return
 }
 

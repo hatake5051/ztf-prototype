@@ -9,6 +9,7 @@ import (
 	"soturon/client"
 	"soturon/session"
 	"strings"
+	"sync"
 )
 
 type cap struct {
@@ -94,7 +95,7 @@ func NewCAP() *http.ServeMux {
 					Authz: authURL,
 					Token: tokenURL,
 				},
-				Scopes: []string{"foo", "bar", "openid"},
+				Scopes: []string{"ipaddress", "useragent", "openid"},
 			},
 			sessions: capSessionManager{
 				Manager:    session.NewManager(),
@@ -169,4 +170,33 @@ func (cap *capSessionManager) extractRPFromCookie(r *http.Request) (client.RP, b
 		return nil, false
 	}
 	return cap.extractRP(cookie.Value)
+}
+
+type capStore struct {
+	data map[string]map[string]string
+	sync.RWMutex
+}
+
+func (c *capStore) newComer(openid string) {
+	c.Lock()
+	defer c.Unlock()
+	c.data[openid] = make(map[string]string)
+}
+
+func (c *capStore) add(openid string, k string, v string) error {
+	c.Lock()
+	defer c.Unlock()
+	u, ok := c.data[openid]
+	if !ok {
+		return fmt.Errorf("invalid openid: %v", openid)
+	}
+	u[k] = v
+	return nil
+}
+
+func (c *capStore) find(openid string) (map[string]string, bool) {
+	c.RLock()
+	defer c.RUnlock()
+	u, ok := c.data[openid]
+	return u, ok
 }

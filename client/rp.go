@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"mime"
 	"net/http"
 	"soturon/token"
@@ -45,17 +44,14 @@ func (rp *client) ExchangeCodeForIDToken(r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	jwtID, err := t.ParseIDToken()
-	if err != nil {
+	if err := t.ParseIDToken(); err != nil {
 		return err
 	}
-	log.Printf("rp get idtoken: %#v", jwtID)
-	rp.rctx.WithToken(&t.Token)
-	rp.rctx.WithIDToken(jwtID)
+	rp.rctx.WithIDToken(t)
 	return nil
 }
 
-func (rp *client) extractTokenWithIDFrom(resp *http.Response) (*token.TokenWithID, error) {
+func (rp *client) extractTokenWithIDFrom(resp *http.Response) (*token.IDToken, error) {
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -72,7 +68,7 @@ func (rp *client) extractTokenWithIDFrom(resp *http.Response) (*token.TokenWithI
 	if contentType != "application/json" {
 		return nil, fmt.Errorf("not supported Content-Type: %v", contentType)
 	}
-	t := &token.TokenWithID{}
+	t := &token.IDToken{}
 	if err = json.Unmarshal(body, t); err != nil {
 		return nil, err
 	}
