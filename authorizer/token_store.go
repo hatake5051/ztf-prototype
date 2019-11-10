@@ -6,9 +6,13 @@ import (
 	"sync"
 )
 
+// TokenStore は有効なトークン情報を蓄積しておく場所
 type TokenStore interface {
-	Add(t *token.Token, options map[string]string) error
-	Find(string) (*token.Token, map[string]string, error)
+	// Add で token を追加できる。 options でトークンに関する付加情報を一緒に保存できる
+	Add(t *token.Token, options *TokenOptions) error
+	// Find で トークンを検索できる。
+	Find(string) (*token.Token, *TokenOptions, error)
+	// Delete は 引数のトークンを削除する
 	Delete(string) error
 }
 
@@ -16,7 +20,7 @@ func NewTokenStore() TokenStore {
 	return &tokenStore{
 		tokens: make(map[string]struct {
 			t *token.Token
-			o map[string]string
+			o *TokenOptions
 		}),
 	}
 }
@@ -24,12 +28,12 @@ func NewTokenStore() TokenStore {
 type tokenStore struct {
 	tokens map[string]struct {
 		t *token.Token
-		o map[string]string
+		o *TokenOptions
 	}
 	sync.RWMutex
 }
 
-func (ts *tokenStore) Add(t *token.Token, options map[string]string) error {
+func (ts *tokenStore) Add(t *token.Token, options *TokenOptions) error {
 	ts.Lock()
 	defer ts.Unlock()
 	if t == nil {
@@ -37,12 +41,12 @@ func (ts *tokenStore) Add(t *token.Token, options map[string]string) error {
 	}
 	ts.tokens[t.AccessToken] = struct {
 		t *token.Token
-		o map[string]string
+		o *TokenOptions
 	}{t: t, o: options}
 	return nil
 }
 
-func (ts *tokenStore) Find(t string) (*token.Token, map[string]string, error) {
+func (ts *tokenStore) Find(t string) (*token.Token, *TokenOptions, error) {
 	ts.RLock()
 	defer ts.RUnlock()
 	tt, ok := ts.tokens[t]

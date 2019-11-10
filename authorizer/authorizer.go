@@ -2,16 +2,19 @@ package authorizer
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"soturon/client"
-	"soturon/token"
 )
 
 type Authorizer interface {
-	Authorize(http.ResponseWriter, *http.Request)
+	// Authorize は Oauth2.0 Client の要求を理解し、ユーザに同意を求めるために必要な情報(ClientID と Scopes)を提供する。
+	// このメソッドを使う場合、返り値を元にユーザに同意をもとめるviewを用意しなければならない。
+	Authorize(*User, http.ResponseWriter, *http.Request) (*client.Config, error)
+	// Approve は ユーザの同意があれば code を発行し、それを OAuth2.0 Client callback endpoint へリダイレクトする。
 	Approve(w http.ResponseWriter, r *http.Request)
+	// IssueToken は client から code を受け取り、検証が成功すればトークンを発行およびJSonエンコードしてレスポンスする。
 	IssueToken(w http.ResponseWriter, r *http.Request)
+	// IntroSpect は リクエストパラメータのトークンが有効か判定し、トークンに関する追加情報を返す
 	IntroSpect(w http.ResponseWriter, r *http.Request)
 }
 
@@ -30,22 +33,8 @@ type authorizer struct {
 	tokens TokenStore
 }
 
-func (a *authorizer) Authorize(w http.ResponseWriter, r *http.Request) {
-	rctx := client.NewRContext(r.Context())
-	idtoken, ok := rctx.IDToken()
-	if !ok {
-		w.WriteHeader(400)
-		fmt.Fprintf(w, "must authenticate")
-		return
-	}
-	c, err := a.front.Consent(w, r)
-	if err != nil {
-		w.WriteHeader(400)
-		fmt.Fprintf(w, "%v", err)
-		return
-	}
-	fmt.Fprint(w, consentPage(c, idtoken))
-	return
+func (a *authorizer) Authorize(user *User, w http.ResponseWriter, r *http.Request) (*client.Config, error) {
+	return a.front.Consent(user, w, r)
 }
 
 func (a *authorizer) Approve(w http.ResponseWriter, r *http.Request) {
@@ -54,51 +43,48 @@ func (a *authorizer) Approve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *authorizer) IssueToken(w http.ResponseWriter, r *http.Request) {
-	t, ok := a.back.Token(r)
+	t, opts, ok := a.back.Token(r)
 	if !ok {
 		w.WriteHeader(400)
-		fmt.Fprintf(w, "cannoe return token")
 		return
 	}
 	tJSON, err := json.Marshal(t)
 	if err != nil {
 		w.WriteHeader(500)
-		fmt.Fprintf(w, "cannot marshal token to JSON")
 		return
 	}
-	a.tokens.Add(t, map[string]string{"": ""})
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(tJSON)
+	a.tokens.Add(t, opts)
+	return
+}
+
+type IntroToken struct {
+	Active   bool   `json:"active"`
+	UserName string `json:"username"`
+	Scope    string `json:"scope"`
+	Issuer   string `json:"iss"`
+	Audience string `json:"aud"`
 }
 
 func (a *authorizer) IntroSpect(w http.ResponseWriter, r *http.Request) {
-	t, _, err := a.tokens.Find(r.FormValue("token"))
+	t, ops, err := a.tokens.Find(r.FormValue("token"))
 	if err != nil {
 		w.WriteHeader(404)
-		fmt.Fprintf(w, "introspect %v", err)
 		return
 	}
-	fmt.Fprintf(w, "Correct! %#v", t)
-}
-
-func consentPage(c *client.Config, idtoken *token.IDToken) string {
-	hello := fmt.Sprintf("%v さんこんにちは。<Br> id-token: %#v", idtoken.Claims["sub"], idtoken)
-
-	reqScope := "<ul>"
-	for _, s := range c.Scopes {
-		reqScope += fmt.Sprintf(`<li>
-		<input type="checkbox" name="scope_%v" checked="checked">
-		%v</li>
-		`, s, s)
+	it := &IntroToken{
+		Active:   true,
+		UserName: ops.User.Name,
+		Scope:    t.Scope,
+		Issuer:   "http://localhost:9001",
+		Audience: "http://localhost:9000",
 	}
-	reqScope += "</ul>"
-	return fmt.Sprintf(`
-	<html><head/><body>
-	%v<br>
-	%v が以下の権限を要求しています
-	<form  action="/approve" method="POST">
-		%s
-		<input type="submit" name="approve" value="Approve">
-		<input type="submit" name="deny" value="Deny">
-	</form></body></html>`, hello, c.ClientID, reqScope)
+	itJSON, err := json.Marshal(it)
+	if err != nil {
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(itJSON)
 }

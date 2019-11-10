@@ -12,7 +12,7 @@ type Token struct {
 	Scope       string `json:"scope"`
 }
 
-func (t *Token) String() string {
+func (t *Token) SetAuthorizationHeader() string {
 	return t.TokenType + " " + t.AccessToken
 }
 
@@ -38,12 +38,13 @@ func (tid *IDToken) ParseIDToken() error {
 	return nil
 }
 
-func (tid *IDToken) Signed(claims *jwt.StandardClaims) error {
+func (tid *IDToken) Signed(claims jwt.MapClaims) error {
 	idt := jwt.NewWithClaims(jwt.GetSigningMethod("none"), claims)
 	idtokenStr, err := idt.SignedString(jwt.UnsafeAllowNoneSignatureType)
 	if err != nil {
 		return err
 	}
 	tid.RawIDToken = idtokenStr
+	tid.Claims = claims
 	return nil
 }

@@ -7,20 +7,35 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/http"
+	"soturon/ctxval"
 	"soturon/token"
 )
 
+// RP は OIDC RP を表す。
 type RP interface {
+	// RedirectToAuthenticator は OID Provider AuthzEndpoint へのリダイレクトを実行する。
 	RedirectToAuthenticator(w http.ResponseWriter, r *http.Request)
+	// ExchangeCodeForIDToken は OID Provider TokenEndpoint からIDトークンを取得する。
 	ExchangeCodeForIDToken(r *http.Request) error
+	// HasIDToken は有効な IDToken を持っているか判定する
+	HasIDToken() bool
+	// SetIDTokenToHeader は引数のリクエストヘッダに取得しておいたIDトークンを付与する
+	SetIDTokenToHeader(h *http.Header)
+	// RP が今持っているコンテキスト情報を返す。
 	Context() context.Context
 }
 
-func (c Config) RP(rctx RContext) RP {
-	return &client{
-		rctx: rctx,
-		conf: c,
+func (rp *client) HasIDToken() bool {
+	_, ok := ctxval.IDToken(rp.ctx)
+	return ok
+}
+
+func (rp *client) SetIDTokenToHeader(h *http.Header) {
+	idt, ok := ctxval.IDToken(rp.ctx)
+	if !ok {
+		return
 	}
+	h.Set("Authorization", idt.SetAuthorizationHeader())
 }
 
 func (rp *client) RedirectToAuthenticator(w http.ResponseWriter, r *http.Request) {
@@ -44,10 +59,11 @@ func (rp *client) ExchangeCodeForIDToken(r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// IDToken のJWTを検証する
 	if err := t.ParseIDToken(); err != nil {
 		return err
 	}
-	rp.rctx.WithIDToken(t)
+	rp.ctx = ctxval.WithIDToken(rp.ctx, t)
 	return nil
 }
 

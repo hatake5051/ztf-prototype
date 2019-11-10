@@ -37,7 +37,8 @@ func (s *session) Set(key string, v interface{}) {
 type Manager interface {
 	UniqueID() string
 	Delete(string)
-	Find(string) (Session, bool)
+	Find(sessionID string) (Session, bool)
+	FindValue(sID, k string) (v interface{}, ok bool)
 	Set(sID, k string, v interface{}) bool
 }
 
@@ -75,6 +76,17 @@ func (m *manager) Find(sID string) (Session, bool) {
 	defer m.RUnlock()
 	s, ok := m.s[sID]
 	return s, ok
+}
+
+func (m *manager) FindValue(sID, k string) (v interface{}, ok bool) {
+	m.RLock()
+	defer m.RUnlock()
+	s, ok := m.s[sID]
+	if !ok {
+		return nil, false
+	}
+	v, ok = s.Find(k)
+	return
 }
 
 func (m *manager) Set(sID, k string, v interface{}) bool {
