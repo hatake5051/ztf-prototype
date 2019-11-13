@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/ioutil"
+	"log"
 	"mime"
 	"net/http"
 	"soturon/authorizer"
@@ -20,7 +21,7 @@ type CAPRP interface {
 	FetchUserInfo(rpkey string) (*authorizer.User, bool)
 }
 
-func newCAPRP(conf *client.Config, redirectBack, userInfoURL string) CAPRP {
+func newCAPRP(conf *client.Config, redirectBacks map[string]string, userInfoURL string) CAPRP {
 	return &caprp{
 		sm: &rpSessionManager{
 			Manager:    session.NewManager(),
@@ -30,16 +31,16 @@ func newCAPRP(conf *client.Config, redirectBack, userInfoURL string) CAPRP {
 			conf: conf,
 			db:   make(map[string]client.RP),
 		},
-		redirectBackURL: redirectBack,
-		userInfoURL:     userInfoURL,
+		redirectBackURLs: redirectBacks,
+		userInfoURL:      userInfoURL,
 	}
 }
 
 type caprp struct {
-	sm              *rpSessionManager
-	rm              *rpManager
-	redirectBackURL string
-	userInfoURL     string
+	sm               *rpSessionManager
+	rm               *rpManager
+	redirectBackURLs map[string]string
+	userInfoURL      string
 }
 
 func (c *caprp) Authenticate(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +49,9 @@ func (c *caprp) Authenticate(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(501)
 		return
 	}
+	clientID, ok := ctxval.ClientID(r.Context())
+	log.Printf("caprp clientid: %v", clientID)
+
 	rp := c.rm.create(r.Context(), k)
 	http.SetCookie(w, c.sm.setRPKeyAndNewCookie(k))
 	rp.RedirectToAuthenticator(w, r)
@@ -69,7 +73,9 @@ func (c *caprp) Callback(w http.ResponseWriter, r *http.Request) {
 	if err := rp.ExchangeCodeForIDToken(r); err != nil {
 		return
 	}
-	http.Redirect(w, r, c.redirectBackURL, http.StatusFound)
+	redirect, ok := ctxval.ClientID(rp.Context())
+	log.Printf("carp callback r: %#v", redirect)
+	http.Redirect(w, r, c.redirectBackURLs[redirect], http.StatusFound)
 }
 
 func (c *caprp) HasIDToken(rpKey string) bool {

@@ -27,14 +27,14 @@ type CAP interface {
 	Callback(w http.ResponseWriter, r *http.Request)
 }
 
-func New(registration map[string]*client.Config, conf *client.Config, rpRedirectURL, userInfoURL string) CAP {
+func New(registration map[string]*client.Config, conf *client.Config, rpRedirectURLs map[string]string, userInfoURL string) CAP {
 	cap := &cap{
 		a: authorizer.New(registration),
 		sm: &sessionManager{
 			Manager:    session.NewManager(),
 			cookieName: "context-attribute-provider-session-id",
 		},
-		CAPRP: newCAPRP(conf, rpRedirectURL, userInfoURL),
+		CAPRP: newCAPRP(conf, rpRedirectURLs, userInfoURL),
 		ctxs:  NewCtxStore(),
 	}
 	return cap
@@ -116,7 +116,9 @@ func (c *cap) Authorize(w http.ResponseWriter, r *http.Request) {
 func (c *cap) newSession(w http.ResponseWriter, r *http.Request) {
 	k := util.RandString(30)
 	http.SetCookie(w, c.sm.setRPKeyAndNewCookie(k))
-	c.Authenticate(w, r.WithContext(ctxval.WithRPKey(r.Context(), k)))
+	ctx := ctxval.WithRPKey(r.Context(), k)
+	ctx = ctxval.WithClientID(ctx, r.FormValue("client_id"))
+	c.Authenticate(w, r.WithContext(ctx))
 }
 
 func (c *cap) Approve(w http.ResponseWriter, r *http.Request) {

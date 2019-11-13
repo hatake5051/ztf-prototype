@@ -29,6 +29,7 @@ func (c Context) Filtered(scopes []string) Context {
 	filtered := make(map[string]interface{})
 	for _, scope := range scopes {
 		filtered[scope] = cMap[scope]
+		filtered["have_been_used_this_"+scope] = cMap["have_been_used_this_"+scope]
 	}
 	cJSON, err = json.Marshal(filtered)
 	if err != nil {
@@ -64,8 +65,10 @@ func (c *ctxStore) Save(userID string, r *http.Request) {
 	if !ok {
 		ctx = new(Context)
 	}
+
 	ipaddr := r.RemoteAddr
 	ctx.IPAddr = ipaddr
+	log.Printf("ipaddresss: %#v, ipaddr: %#v", ctx.ipaddrs, ipaddr)
 	if find(ctx.ipaddrs, ipaddr) {
 		ctx.HaveBeenUsedThisIPAddr = true
 	} else {
@@ -79,6 +82,7 @@ func (c *ctxStore) Save(userID string, r *http.Request) {
 	} else {
 		ctx.HaveBeenUsedThisUA = false
 	}
+	log.Printf("Save ctx: %#v", ctx)
 	ctx.uas = append(ctx.uas, ua)
 	c.db[userID] = ctx
 }

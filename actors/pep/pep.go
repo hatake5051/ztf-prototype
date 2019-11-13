@@ -110,14 +110,14 @@ func (m *sessionManager) FindClientKey(sID string) (k string, ok bool) {
 func contextInfoPage(actx *cap.Context) string {
 	ipaddrList := "<li> IPAddr"
 	if actx.IPAddr != "" {
-		ipaddrList += ("<ul>" + "<li>" + actx.IPAddr + "</li><li> FirstTime: " + strconv.FormatBool(actx.HaveBeenUsedThisIPAddr) + "</li></ul>")
+		ipaddrList += ("<ul>" + "<li>" + actx.IPAddr + "</li><li> ２回目？: " + strconv.FormatBool(actx.HaveBeenUsedThisIPAddr) + "</li></ul>")
 	} else {
 		ipaddrList += "IPAddr を見る権限がありません"
 	}
 	ipaddrList += "</li>"
 	uaList := "<li> UserAgent"
 	if actx.UserAgent != "" {
-		uaList += ("<ul>" + "<li> " + actx.UserAgent + "</li><li> FirstTime: " + strconv.FormatBool(actx.HaveBeenUsedThisUA) + "</li></ul>")
+		uaList += ("<ul>" + "<li> " + actx.UserAgent + "</li><li> ２回目?: " + strconv.FormatBool(actx.HaveBeenUsedThisUA) + "</li></ul>")
 	} else {
 		uaList += "UserAgent を見る権限がありません"
 	}

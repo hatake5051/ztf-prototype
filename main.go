@@ -11,6 +11,7 @@ import (
 
 func main() {
 	go func() {
+		// Identity Provider をサーバとして用意する
 		idp := idp.New(map[string]*client.Config{
 			"cap-oidc-relyingparty": &client.Config{
 				ClientID:     "cap-oidc-relyingparty",
@@ -30,6 +31,7 @@ func main() {
 	}()
 
 	go func() {
+		// Service Provider その１と それ用の Policy Enforcement Point の用意
 		pep := pep.New(client.Config{
 			ClientID:     "pep-oauth-client",
 			ClientSecret: "pep-oauth-client-secret",
@@ -51,20 +53,43 @@ func main() {
 		}
 	}()
 
+	go func() {
+		// Service Provider その2と それ用の Policy Enforcement Point の用意
+		pep := pep.New(client.Config{
+			ClientID:     "pep-oauth-client-2",
+			ClientSecret: "pep-oauth-client-2-secret",
+			RedirectURL:  "http://localhost:9003/callback",
+			Endpoint: struct {
+				Authz string
+				Token string
+			}{
+				Authz: "http://localhost:9001/authorize",
+				Token: "http://localhost:9001/token",
+			},
+			Scopes: []string{"useragent"},
+		}, "http://localhost:9003/", "http://localhost:9001/context")
+		mux := http.NewServeMux()
+		mux.Handle("/", pep)
+		mux.HandleFunc("/callback", pep.Callback)
+		if err := http.ListenAndServe(":9003", mux); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	// Contxt Attribute Provider の用意
 	cap := cap.New(
 		map[string]*client.Config{
 			"pep-oauth-client": &client.Config{
 				ClientID:     "pep-oauth-client",
 				ClientSecret: "pep-oauth-client-secret",
 				RedirectURL:  "http://localhost:9000/callback",
-				Endpoint: struct {
-					Authz string
-					Token string
-				}{
-					Authz: "http://localhost:9001/authorize",
-					Token: "http://localhost:9001/token",
-				},
-				Scopes: []string{"ipaddress", "useragent"},
+				Scopes:       []string{"ipaddress", "useragent"},
+			},
+			"pep-oauth-client-2": &client.Config{
+				ClientID:     "pep-oauth-client-2",
+				ClientSecret: "pep-oauth-client-2-secret",
+				RedirectURL:  "http://localhost:9003/callback",
+				Scopes:       []string{"useragent"},
 			},
 		},
 		&client.Config{
@@ -76,7 +101,12 @@ func main() {
 				Authz string
 				Token string
 			}{Authz: "http://localhost:9002/authenticate", Token: "http://localhost:9002/token"},
-		}, "http://localhost:9000/", "http://localhost:9002/userinfo")
+		},
+		map[string]string{
+			"pep-oauth-client":   "http://localhost:9000/",
+			"pep-oauth-client-2": "http://localhost:9003/",
+		},
+		"http://localhost:9002/userinfo")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/authorize", cap.Authorize)
 	mux.HandleFunc("/approve", cap.Approve)

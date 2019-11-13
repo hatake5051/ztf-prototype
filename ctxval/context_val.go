@@ -8,12 +8,12 @@ import (
 type contextKey int
 
 const (
-	stateKey   contextKey = 0
-	tokenKey   contextKey = 1
-	idtokenKey contextKey = 2
-	requestKey contextKey = 3
-	clientKey  contextKey = 4
-	rpKey      contextKey = 5
+	stateKey    contextKey = 0
+	tokenKey    contextKey = 1
+	idtokenKey  contextKey = 2
+	clientIDKey contextKey = 3
+	clientKey   contextKey = 4
+	rpKey       contextKey = 5
 )
 
 // WithState は Oauth2.0 Client が作成した state をコンテキストに蓄積する
@@ -49,13 +49,16 @@ func IDToken(ctx context.Context) (t *token.IDToken, ok bool) {
 	return
 }
 
-// func WithRequest(ctx context.Context, r *http.Request) context.Context {
-// 	return context.WithValue(ctx, requestKey, r)
-// }
-// func Request(ctx context.Context) (r *http.Request, ok bool) {
-// 	r, ok = ctx.Value(requestKey).(*http.Request)
-// 	return
-// }
+// WithReferer は CAP RP が どの PEP にリダイレクトし直せば良いかをコンテキストに蓄積する。
+func WithClientID(ctx context.Context, r string) context.Context {
+	return context.WithValue(ctx, clientIDKey, r)
+}
+
+// Referer は CAP RP が取得しておいた戻し先をコンテキストから取り出す。
+func ClientID(ctx context.Context) (r string, ok bool) {
+	r, ok = ctx.Value(clientIDKey).(string)
+	return
+}
 
 // WithClientKey は PEP が PEPOC の Client を識別するためのIDをセットする
 func WithClientKey(ctx context.Context, k string) context.Context {

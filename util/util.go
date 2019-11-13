@@ -11,6 +11,7 @@ func init() {
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
+// RandString は n このランダム文字列を生成する関数
 func RandString(n int) string {
 	b := make([]rune, n)
 	for i := range b {
