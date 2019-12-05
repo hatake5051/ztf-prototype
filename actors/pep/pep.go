@@ -33,16 +33,20 @@ type pep struct {
 	OC
 }
 
+// PEP のエントリポイント。現状は、SPへアクセスする際に必ず通るハンドラ。
 func (p *pep) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if ok := p.front(r); !ok {
+		// トークンを持っていなければ、トークン取得フローを始める
 		p.newSession(w, r)
 		return
 	}
+	// token があればコンテキストを取得しに行く
 	actx, ok := p.fetchContext(r)
 	if !ok {
 		p.newSession(w, r)
 		return
 	}
+	// PE に ctx に基づいた Policy Decision を尋ねる
 	if ok := p.requestPolicyDecision(actx); !ok {
 		fmt.Fprint(w, "access denied")
 		return
@@ -50,18 +54,23 @@ func (p *pep) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, contextInfoPage(actx))
 }
 
+// リクエストのクッキーを確認し、セッションが確立しているか、
+// またそのセッションでトークンを取得しているかをチェックする
 func (p *pep) front(r *http.Request) bool {
 	k, ok := p.sm.FindClientKeyFromCokkie(r)
 	if !ok {
+		// セッション未確立
 		return false
 	}
 	if !p.HasToken(k) {
+		// セッションと紐づいたトークンを持っていない
 		return false
 	}
 	return true
 }
 
 func (p *pep) fetchContext(r *http.Request) (*cap.Context, bool) {
+	// このセッションに対応したクライアントキーを取得
 	k, ok := p.sm.FindClientKeyFromCokkie(r)
 	if !ok {
 		return nil, false
@@ -69,10 +78,18 @@ func (p *pep) fetchContext(r *http.Request) (*cap.Context, bool) {
 	return p.FetchContext(k)
 }
 
+// セッションを新しく作り、そこでトークン取得用クライアントを作成する
 func (p *pep) newSession(w http.ResponseWriter, r *http.Request) {
+	// ここで作成するセッションキーはOAuth2.0 Client 識別きーも兼ねる
 	k := util.RandString(30)
 	http.SetCookie(w, p.sm.setClientKeyAndNewCookie(k))
-	p.Authorize(w, r.WithContext(ctxval.WithClientKey(r.Context(), k)))
+	// リクエストのコンテキストに作成したClient 識別キーを追加する
+	// p.Authorize はコンテキストから clientKey を取得しそれとクライアントを紐づける
+	ctx := ctxval.WithClientKey(r.Context(), k)
+	// トークン取得後に同じリクエストを処理できるようにする
+	// リクエストパラメータはURLにのみ現れると仮定
+	ctx = ctxval.WithRedirect(ctx, r.URL.String())
+	p.Authorize(w, r.WithContext(ctx))
 }
 
 func (p *pep) requestPolicyDecision(actx *cap.Context) bool {

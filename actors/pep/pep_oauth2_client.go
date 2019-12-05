@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/ioutil"
+	"log"
 	"mime"
 	"net/http"
 	"soturon/actors/cap"
@@ -14,9 +15,13 @@ import (
 )
 
 type OC interface {
+	// 認可コード取得フローを行う
 	Authorize(w http.ResponseWriter, r *http.Request)
+	// 認可コード取得後にトークン取得フローを始める
 	Callback(w http.ResponseWriter, r *http.Request)
+	// clientKey が k の OAtuth2.0 Client が有効なトークンを取得しているか
 	HasToken(k string) bool
+	// clientKey が k の OAtuth2.0 Client にコンテキストを取得させる
 	FetchContext(clientKey string) (*cap.Context, bool)
 }
 
@@ -43,14 +48,17 @@ type pepoc struct {
 }
 
 func (p *pepoc) Authorize(w http.ResponseWriter, r *http.Request) {
-	k, ok := ctxval.ClientKey(r.Context())
-	if !ok {
-		return
-	}
+	// Authorize は pep.newSession から呼び出される
+	// 必ずコンテキストの中に clientKey が存在している
+	k, _ := ctxval.ClientKey(r.Context())
+	// ユーザ用のクライアントを作成する
 	c := p.cm.create(r.Context(), k)
+	// セッションを作成する
 	sID := p.sm.UniqueID()
+	// そのセッションにクライアント識別子を記憶
 	p.sm.setClientKey(sID, k)
 	http.SetCookie(w, &http.Cookie{Name: p.sm.cookieName, Value: sID})
+	// CAP Authorizer にリダイレクト
 	c.RedirectToAuthorizer(w, r)
 }
 
@@ -70,7 +78,11 @@ func (p *pepoc) Callback(w http.ResponseWriter, r *http.Request) {
 	if err := c.ExchangeCodeForToken(r); err != nil {
 		return
 	}
-	http.Redirect(w, r, p.redirectBackURL, http.StatusFound)
+	// トークンを取得したので、PEPのPolicyDecisionフローに戻す
+	// それは記憶しておいた /entrypoint に 戻してあげれば良い
+	redirect, ok := ctxval.Redirect(c.Context())
+	log.Printf("pepoc callback r: %#v", redirect)
+	http.Redirect(w, r, redirect, http.StatusFound)
 	return
 }
 
@@ -83,14 +95,17 @@ func (p *pepoc) HasToken(k string) bool {
 }
 
 func (p *pepoc) FetchContext(clientKey string) (*cap.Context, bool) {
+	// 対応するクライアントを検索
 	c, ok := p.cm.find(clientKey)
 	if !ok {
 		return nil, false
 	}
+	// Context Provider のエンドポイントへのリクエストを作成
 	req, err := http.NewRequest("GET", p.contextURL, nil)
 	if err != nil {
 		return nil, false
 	}
+	// もちろんトークンをリクエストに付与
 	c.SetTokenToHeader(&req.Header)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -115,6 +130,7 @@ func (p *pepoc) FetchContext(clientKey string) (*cap.Context, bool) {
 	if err := json.Unmarshal(body, actx); err != nil {
 		return nil, false
 	}
+	// レスポンスをJSONデシリアライズする
 	return actx, true
 }
 

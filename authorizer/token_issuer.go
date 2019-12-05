@@ -65,7 +65,9 @@ func (t *tokenIssuer) AddCode(code string, opts *TokenOptions) {
 	t.codes.register(code, opts)
 }
 
+// IDTokenIssuer は IDトークンと UserInfo アクセストークンを発行する
 type IDTokenIssuer interface {
+	// 認可コードを伴ったリクエストを検証し、IDトークンを発行する
 	IDToken(r *http.Request) (*token.IDToken, bool)
 	AddCode(code string, opts *TokenOptions)
 }
@@ -78,35 +80,43 @@ func NewIDTokenIssuer(registered ClientRegistration) IDTokenIssuer {
 }
 
 func (t *tokenIssuer) IDToken(r *http.Request) (*token.IDToken, bool) {
+	// RPクレデンシャルはBasic認証で検証できる
 	clientID, clientSecret, ok := r.BasicAuth()
 	if !ok {
 		return nil, false
 	}
+	// セッションと紐づいたRP情報とリクエストで送られたクレデンシャルが正しいか検証する
 	if c, ok := t.registered.Find(clientID); !ok || c.ClientSecret != clientSecret {
 		return nil, false
 	}
 	if r.FormValue("grant_type") == "authorization_code" {
+		// 認可コードグラントタイプのみ対応
 		code := r.FormValue("code")
 		opts, ok := t.codes.find(code)
+		// 認可コード発行対象者とリクエスト発行者が同一か
 		if !ok || opts.ClientID != clientID {
 			return nil, false
 		}
+		// 一度きりの認可コードはこのハンドラが終わり次第不必要
 		defer t.codes.delete(code)
-		ok = false
+		// ユーザ同意スコープにopenid がないとだめ
 		if !strings.Contains(strings.Join(opts.Scopes, " "), "openid") {
 			return nil, false
 		}
+		// UserInfo アクセストークンを発行し
 		t := &token.IDToken{
 			Token: token.Token{AccessToken: util.RandString(30),
 				TokenType: "Bearer",
 				Scope:     strings.Join(opts.Scopes, " "),
 			},
 		}
+		// IDトークンのクレームを用意し
 		claims := jwt.MapClaims{
 			"iss": "http://localhost:9002",
 			"sub": opts.User.Name,
 			"aud": clientID,
 		}
+		// IDトークンに署名する
 		if err := t.Signed(claims); err != nil {
 			return nil, false
 		}

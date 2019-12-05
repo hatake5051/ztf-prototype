@@ -15,9 +15,13 @@ import (
 )
 
 type CAPRP interface {
+	// IdP の認証同意ページへユーザをリダイレクト
 	Authenticate(w http.ResponseWriter, r *http.Request)
+	// IdP から認可コードを受け取り、IDトークンと交換する
 	Callback(w http.ResponseWriter, r *http.Request)
+	// IdP から取得したIDトークンがあるか、また有効であるか検証する
 	HasIDToken(rpkey string) bool
+	// IdP userInfo endpoint からユーザ情報を取得する
 	FetchUserInfo(rpkey string) (*authorizer.User, bool)
 }
 
@@ -44,13 +48,10 @@ type caprp struct {
 }
 
 func (c *caprp) Authenticate(w http.ResponseWriter, r *http.Request) {
-	k, ok := ctxval.RPKey(r.Context())
-	if !ok {
-		w.WriteHeader(501)
-		return
-	}
-	clientID, ok := ctxval.ClientID(r.Context())
-	log.Printf("caprp clientid: %v", clientID)
+	// リクエストコンテキストの中にRPキーは含まれている
+	k, _ := ctxval.RPKey(r.Context())
+	// clientID, _ := ctxval.ClientID(r.Context())
+	// log.Printf("caprp clientid: %v", clientID)
 
 	rp := c.rm.create(r.Context(), k)
 	http.SetCookie(w, c.sm.setRPKeyAndNewCookie(k))
@@ -58,6 +59,7 @@ func (c *caprp) Authenticate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *caprp) Callback(w http.ResponseWriter, r *http.Request) {
+	// セッションと紐づいたRPを取得
 	cookie, err := r.Cookie(c.sm.cookieName)
 	if err != nil {
 		return
@@ -70,19 +72,25 @@ func (c *caprp) Callback(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// リクエストに含まれる認可コードを元にトークンを取得
+	// 取得するとIDトークンはRPに蓄積される
 	if err := rp.ExchangeCodeForIDToken(r); err != nil {
 		return
 	}
-	redirect, ok := ctxval.ClientID(rp.Context())
+	// IDトークンを取得したので、コンテキスト取得のためのトークン取得フローに戻す
+	// それは記憶しておいた /authorize に 戻してあげれば良い
+	redirect, ok := ctxval.Redirect(rp.Context())
 	log.Printf("carp callback r: %#v", redirect)
-	http.Redirect(w, r, c.redirectBackURLs[redirect], http.StatusFound)
+	http.Redirect(w, r, redirect, http.StatusFound)
 }
 
 func (c *caprp) HasIDToken(rpKey string) bool {
+	// rpKey t紐づいたRPを取り出す
 	rp, ok := c.rm.find(rpKey)
 	if !ok {
 		return false
 	}
+	// そのRPがIDトークンを持っているか確認する
 	return rp.HasIDToken()
 }
 
@@ -91,10 +99,12 @@ func (c *caprp) FetchUserInfo(rpKey string) (*authorizer.User, bool) {
 	if !ok {
 		return nil, false
 	}
+	// UserInfo Endpoint にGetリクエスト
 	req, err := http.NewRequest("GET", c.userInfoURL, nil)
 	if err != nil {
 		return nil, false
 	}
+	// Token をリクエストに付与
 	rp.SetIDTokenToHeader(&req.Header)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -119,6 +129,7 @@ func (c *caprp) FetchUserInfo(rpKey string) (*authorizer.User, bool) {
 	if err := json.Unmarshal(body, user); err != nil {
 		return nil, false
 	}
+	// UserInfo レスポンスをデシリアライズして返す
 	return user, true
 
 }
