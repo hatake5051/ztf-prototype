@@ -34,6 +34,7 @@ type TokenOptions struct {
 type tokenIssuer struct {
 	registered ClientRegistration
 	codes      *codeManager
+	host       string
 }
 
 func (t *tokenIssuer) Token(r *http.Request) (*token.Token, *TokenOptions, bool) {
@@ -72,10 +73,11 @@ type IDTokenIssuer interface {
 	AddCode(code string, opts *TokenOptions)
 }
 
-func NewIDTokenIssuer(registered ClientRegistration) IDTokenIssuer {
+func NewIDTokenIssuer(registered ClientRegistration, host string) IDTokenIssuer {
 	return &tokenIssuer{
 		registered: registered,
 		codes:      &codeManager{codes: make(map[string]*TokenOptions)},
+		host:       host,
 	}
 }
 
@@ -104,7 +106,7 @@ func (t *tokenIssuer) IDToken(r *http.Request) (*token.IDToken, bool) {
 			return nil, false
 		}
 		// UserInfo アクセストークンを発行し
-		t := &token.IDToken{
+		tid := &token.IDToken{
 			Token: token.Token{AccessToken: util.RandString(30),
 				TokenType: "Bearer",
 				Scope:     strings.Join(opts.Scopes, " "),
@@ -112,15 +114,15 @@ func (t *tokenIssuer) IDToken(r *http.Request) (*token.IDToken, bool) {
 		}
 		// IDトークンのクレームを用意し
 		claims := jwt.MapClaims{
-			"iss": "http://localhost:9002",
+			"iss": "http://" + t.host,
 			"sub": opts.User.Name,
 			"aud": clientID,
 		}
 		// IDトークンに署名する
-		if err := t.Signed(claims); err != nil {
+		if err := tid.Signed(claims); err != nil {
 			return nil, false
 		}
-		return t, true
+		return tid, true
 	}
 	return nil, false
 }

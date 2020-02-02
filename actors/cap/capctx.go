@@ -9,9 +9,9 @@ import (
 
 type Context struct {
 	UserAgent                  string `json:"device:useragent:raw,omitempty"`
-	UserAgentHaveBeenUsed      bool   `json:"device:useragent:predicate:havebeenused"`
+	UserAgentHaveBeenUsed      bool   `json:"device:useragent:predicate:recentlyused"`
 	UserLocation               string `json:"user:location:raw,omitempty"`
-	UserLocationHaveBeenStayed bool   `json:"user:location:predicate:havebeenstayed"`
+	UserLocationHaveBeenStayed bool   `json:"user:location:predicate:recentlystayed"`
 	UserLocationIsJapan        bool   `json:"user:location:predicate:isjapan"`
 }
 
@@ -79,34 +79,36 @@ func (c *ctxStore) Save(userID string, userctx *Context) {
 	updated := userctx.toJSON()
 	k := "device:useragent:raw"
 	if _, ok := updated[k]; ok {
-		k2 := "device:useragent:predicate:havebeenused"
+		k2 := "device:useragent:predicate:recentlyused"
 		if !now[k2].(bool) {
 			if nowk2, ok := now[k].(string); ok {
-				now[k2] = nowk2 == updated[k].(string)
+				now[k2] = (nowk2 == updated[k].(string))
+			} else {
+				now[k2] = false
 			}
-			now[k2] = false
 		}
 		now[k] = updated[k]
 	} else {
-		k = "device:useragent:predicate:havebeenused"
+		k = "device:useragent:predicate:recentlyused"
 		if _, ok := updated[k]; ok {
 			now[k] = updated[k]
 		}
 	}
 	k = "user:location:raw"
 	if _, ok := updated[k]; ok {
-		k2 := "user:location:predicate:havebeenstayed"
+		k2 := "user:location:predicate:recentlystayed"
 		if !now[k2].(bool) {
 			if nowk2, ok := now[k].(string); ok {
-				now[k2] = nowk2 == updated[k].(string)
+				now[k2] = (nowk2 == updated[k].(string))
+			} else {
+				now[k2] = false
 			}
-			now[k2] = false
 		}
 		now[k] = updated[k]
 		k2 = "user:location:predicate:isjapan"
-		now[k2] = updated[k].(string) == "ja"
+		now[k2] = (updated[k].(string) == "ja")
 	} else {
-		k = "user:location:predicate:havebeenstayed"
+		k = "user:location:predicate:recentlystayed"
 		if _, ok := updated[k]; ok {
 			now[k] = updated[k]
 		}

@@ -16,6 +16,28 @@ import (
 	"strings"
 )
 
+type Conf struct {
+	Addr string
+}
+
+func (c *Conf) CallbackEndpoint() string {
+	return "http://" + c.Addr + "/callback"
+}
+
+func (c *Conf) AuthorizeEndponit() string {
+	return "http://" + c.Addr + "/authorize"
+}
+
+func (c *Conf) TokenEndponit() string {
+	return "http://" + c.Addr + "/token"
+}
+func (c *Conf) RegistersubscEndponit() string {
+	return "http://" + c.Addr + "/registersubsc"
+}
+func (c *Conf) CollectEndponit() string {
+	return "http://" + c.Addr + "/collect"
+}
+
 type CAP interface {
 	// トークンを持った要求に対し、コンテキストを返す
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
@@ -34,14 +56,15 @@ type CAP interface {
 func New(registration map[string]*client.Config, conf *client.Config, rpRedirectURLs map[string]string, userInfoURL string, issueURL string) CAP {
 	ctxs := NewCtxStore()
 	cap := &cap{
-		a: authorizer.New(registration),
+		a: authorizer.New(registration, issueURL),
 		sm: &sessionManager{
 			Manager:    session.NewManager(),
 			cookieName: "context-attribute-provider-session-id",
 		},
-		CAPRP:   newCAPRP(conf, rpRedirectURLs, userInfoURL),
-		caepsvc: newCAEPSVC(issueURL, ctxs),
-		ctxs:    ctxs,
+		CAPRP:    newCAPRP(conf, rpRedirectURLs, userInfoURL),
+		caepsvc:  newCAEPSVC(issueURL, ctxs),
+		ctxs:     ctxs,
+		issueURL: issueURL,
 	}
 	return cap
 }
@@ -50,8 +73,9 @@ type cap struct {
 	a  authorizer.Authorizer
 	sm *sessionManager
 	CAPRP
-	caepsvc CAEPSVC
-	ctxs    ContextStore
+	caepsvc  CAEPSVC
+	ctxs     ContextStore
+	issueURL string
 }
 
 func (c *cap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +100,7 @@ func (c *cap) tokenIntrospect(r *http.Request) (*authorizer.IntroToken, bool) {
 	bearerPlusToken := strings.Split(r.Header.Get("Authorization"), " ")
 	t := bearerPlusToken[1]
 	// トークンが正しいかIntroSpect endpoint に尋ねる
-	req, err := http.NewRequest("POST", "http://localhost:9001/introspect", strings.NewReader(url.Values{"token": {t}}.Encode()))
+	req, err := http.NewRequest("POST", c.issueURL+"/introspect", strings.NewReader(url.Values{"token": {t}}.Encode()))
 	if err != nil {
 		return nil, false
 	}

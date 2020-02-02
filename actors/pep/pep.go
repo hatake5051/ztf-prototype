@@ -8,7 +8,22 @@ import (
 	"soturon/ctxval"
 	"soturon/session"
 	"soturon/util"
+	"strings"
 )
+
+type Conf struct {
+	Addr string
+}
+
+func (c *Conf) CallbackEndponit() string {
+	return "http://" + c.Addr + "/callback"
+}
+func (c *Conf) SubscribeEndponit() string {
+	return "http://" + c.Addr + "/subscribe"
+}
+func (c *Conf) Endponit() string {
+	return "http://" + c.Addr + "/"
+}
 
 type PEP interface {
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
@@ -16,6 +31,7 @@ type PEP interface {
 	Callback(w http.ResponseWriter, r *http.Request)
 	Subscribe(w http.ResponseWriter, r *http.Request)
 	UpdateCtxForm(w http.ResponseWriter, r *http.Request)
+	Approve(w http.ResponseWriter, r *http.Request)
 }
 
 func New(conf client.Config, ocredirectBackURL, registerSubURL, subscriptionEndpoint, publishIssuer, publishEndpoint string) PEP {
@@ -24,8 +40,10 @@ func New(conf client.Config, ocredirectBackURL, registerSubURL, subscriptionEndp
 			Manager:    session.NewManager(),
 			cookieName: "policy-enforcement-point-session-id",
 		},
-		OC:     newOC(conf, ocredirectBackURL, registerSubURL, subscriptionEndpoint),
-		CAEPRP: newCAEPRP(publishIssuer, publishEndpoint),
+		OC:            newOC(conf, ocredirectBackURL, registerSubURL, subscriptionEndpoint),
+		CAEPRP:        newCAEPRP(publishIssuer, publishEndpoint),
+		conf:          &conf,
+		publishIssuer: publishIssuer,
 	}
 }
 
@@ -35,10 +53,20 @@ type pep struct {
 	// OAuth2.0 Client in PEP for fetching token
 	OC
 	CAEPRP
+	conf          *client.Config
+	publishIssuer string
 }
 
 func (p *pep) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "pep index page")
+	fmt.Fprintf(w, `
+	<html>
+		<head></head>
+		<body>
+			<h1>welcome to RP9000</h1>
+			<a href="/register">CAPへサブスク登録</a>
+		</body?
+	</html>	
+	`)
 }
 
 func (p *pep) RegisterSubsc(w http.ResponseWriter, r *http.Request) {
@@ -53,18 +81,80 @@ func (p *pep) RegisterSubsc(w http.ResponseWriter, r *http.Request) {
 		p.newSession(w, r)
 		return
 	}
-	fmt.Fprintf(w, "succeeded")
+	p.Consent(w)
 }
 
-func (p *pep) ViewCtx(w http.Response, r *http.Request) {
+func (p *pep) Consent(w http.ResponseWriter) {
+	var publishScope []string
+	for _, s := range p.conf.Scopes {
+		if strings.HasSuffix(s, ":raw") {
+			publishScope = append(publishScope, s)
+		}
+	}
+	reqScope := "<ul>"
+	for _, s := range publishScope {
+		reqScope += fmt.Sprintf(`<li>
+		<input type="checkbox" name="scope_%v" checked="checked">
+		%v</li>
+		`, s, strings.TrimSuffix(s, ":raw"))
+	}
+	reqScope += "</ul>"
+	fmt.Fprintf(w, `
+	<html><head/><body>
+	CAP(%v) に以下のコンテキストを提供することに同意しますか？
+	<form  action="/approve" method="POST">
+		%s
+		<input type="submit" name="approve" value="Approve">
+		<input type="submit" name="deny" value="Deny">
+	</form></body></html>`, p.publishIssuer, reqScope)
+	return
+}
 
+func (p *pep) Approve(w http.ResponseWriter, r *http.Request) {
+	if r.FormValue("approve") != "Approve" {
+		fmt.Fprintf(w, "CAPへコンテキストを提供することはありません")
+		return
+	}
+	var apperovedScopes []string
+	for _, s := range p.conf.Scopes {
+		if sc := r.FormValue("scope_" + s); sc == "on" {
+			apperovedScopes = append(apperovedScopes, s)
+		}
+	}
+
+	apprprovedScopesView := "<ul>"
+	for _, s := range apperovedScopes {
+		apprprovedScopesView += fmt.Sprintf("<li>%v</li>", s)
+	}
+	apprprovedScopesView += "</ul>"
+
+	updatedContextForm := ""
+	for _, s := range apperovedScopes {
+		updatedContextForm += fmt.Sprintf(`<p>%v:<input type="text" name="%v">`,
+			strings.TrimSuffix(s, ":raw"), s)
+	}
+	fmt.Fprintf(w, `
+	<html>
+		<head></head>
+		</body>
+			<h1>同意内容</h1>
+			CAPへ次のコンテキストを提供することに同意しました。
+				%v
+			<h1>コンテキストの変更</h1>
+			自身のコンテキストを変更できます（demo用）
+			<form action="/updatectx" method="POST">
+			%v
+			<p><input type="submit" value="submit">
+			</form>
+		</body>
+	</html>		
+	`, apprprovedScopesView, updatedContextForm)
 }
 
 func (p *pep) UpdateCtxForm(w http.ResponseWriter, r *http.Request) {
 	updatectx := &cap.Context{
-		UserAgent:           "new ua",
-		UserLocation:        "ja",
-		UserLocationIsJapan: true,
+		UserAgent:    r.FormValue("device:useragent:raw"),
+		UserLocation: r.FormValue("user:location:raw"),
 	}
 	p.CollextCtx("alice", updatectx)
 }

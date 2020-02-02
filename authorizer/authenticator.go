@@ -19,11 +19,11 @@ type Authenticator interface {
 	UserInfo(w http.ResponseWriter, r *http.Request)
 }
 
-func NewAuthenticator(registration map[string]*client.Config) Authenticator {
+func NewAuthenticator(host string, registration map[string]*client.Config) Authenticator {
 	registered := NewClientRegistration(registration)
 	return &authenticator{
 		front:  NewAuthzCodeIssuer(registered),
-		back:   NewIDTokenIssuer(registered),
+		back:   NewIDTokenIssuer(registered, host),
 		tokens: NewIDTokenStore(),
 	}
 }
