@@ -17,7 +17,7 @@ func main() {
 				ClientID:     "cap-oidc-relyingparty",
 				ClientSecret: "cap-oidc-relyingparty-secret",
 				RedirectURL:  "http://localhost:9001/callback",
-				Scopes:       []string{"openid", "foo", "bar"},
+				Scopes:       []string{"openid"},
 			},
 		})
 		mux := http.NewServeMux()
@@ -43,7 +43,13 @@ func main() {
 				Authz: "http://localhost:9001/authorize",
 				Token: "http://localhost:9001/token",
 			},
-			Scopes: []string{"ipaddr:raw", "useragent:raw"},
+			Scopes: []string{
+				"device:useragent:raw",
+				"device:useragent:predicate:havebeenused",
+				"user:location:raw",
+				"user:location:predicate:havebeenstayed",
+				"user:location:predicate:isjapan",
+			},
 		}, "http://localhost:9000/",
 			"http://localhost:9001/registersubsc",
 			"http://localhost:9000/subscribe",
@@ -72,7 +78,10 @@ func main() {
 				Authz: "http://localhost:9001/authorize",
 				Token: "http://localhost:9001/token",
 			},
-			Scopes: []string{"useragent:raw"},
+			Scopes: []string{
+				"user:location:raw",
+				"user:location:predicate:isjapan",
+			},
 		}, "http://localhost:9003/",
 			"http://localhost:9001/registersubsc",
 			"http://localhost:9003/subscribe",
@@ -94,13 +103,22 @@ func main() {
 				ClientID:     "pep-oauth-client",
 				ClientSecret: "pep-oauth-client-secret",
 				RedirectURL:  "http://localhost:9000/callback",
-				Scopes:       []string{"ipaddress:raw", "useragent:raw"},
+				Scopes: []string{
+					"device:useragent:raw",
+					"device:useragent:predicate:havebeenused",
+					"user:location:raw",
+					"user:location:predicate:havebeenstayed",
+					"user:location:predicate:isjapan",
+				},
 			},
 			"pep-oauth-client-2": &client.Config{
 				ClientID:     "pep-oauth-client-2",
 				ClientSecret: "pep-oauth-client-2-secret",
 				RedirectURL:  "http://localhost:9003/callback",
-				Scopes:       []string{"useragent"},
+				Scopes: []string{
+					"user:location:raw",
+					"user:location:predicate:isjapan",
+				},
 			},
 		},
 		&client.Config{

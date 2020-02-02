@@ -53,7 +53,7 @@ func createPublishingEvents(updatedctx *cap.Context) map[string]interface{} {
 		panic("arien")
 	}
 	for key, v := range cMap {
-		events[key+":raw"] = v
+		events[key] = v
 	}
 	return events
 }
@@ -72,6 +72,7 @@ func (c *caeprp) publish(sub string, events map[string]interface{}) bool {
 		fmt.Printf("error %#v", err)
 		return false
 	}
+	log.Printf("Post updated ctx to %#v about %#v", c.publishEndpoint, claims)
 	req, err := http.NewRequest("POST", c.publishEndpoint, strings.NewReader(setStr))
 	if err != nil {
 		fmt.Printf("error %#v", err)

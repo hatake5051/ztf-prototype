@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/http"
+	"strings"
 
 	jwt "github.com/dgrijalva/jwt-go"
 )
@@ -49,4 +50,19 @@ func ExtractSETClaimsFrom(req *http.Request) (*SETClaims, error) {
 func (s *SETClaims) SignedString() (string, error) {
 	set := jwt.NewWithClaims(jwt.GetSigningMethod("none"), s)
 	return set.SignedString(jwt.UnsafeAllowNoneSignatureType)
+}
+
+func (s *SETClaims) ExtractUpdatedCtxID() (ctxIDs map[string]bool) {
+	ctxIDs = make(map[string]bool)
+	for eventID, _ := range s.Events {
+		if index := strings.Index(eventID, ":raw"); index != -1 {
+			ctxIDs[eventID[:index]] = true
+			continue
+		}
+		if index := strings.Index(eventID, ":predicate:"); index != -1 {
+			ctxIDs[eventID[:index]] = true
+			continue
+		}
+	}
+	return
 }

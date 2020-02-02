@@ -2,136 +2,142 @@ package cap
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
-	"net/http"
 	"soturon/token"
-	"strings"
 	"sync"
 )
 
 type Context struct {
-	IPAddr                 string   `json:"ipaddr"`
-	HaveBeenUsedThisIPAddr bool     `json:"have_been_used_this_ipaddr"`
-	ipaddrs                []string `json:"-"`
-	UserAgent              string   `json:"useragent"`
-	HaveBeenUsedThisUA     bool     `json:"have_been_used_this_useragent"`
-	uas                    []string `json:"-"`
+	UserAgent                  string `json:"device:useragent:raw,omitempty"`
+	UserAgentHaveBeenUsed      bool   `json:"device:useragent:predicate:havebeenused"`
+	UserLocation               string `json:"user:location:raw,omitempty"`
+	UserLocationHaveBeenStayed bool   `json:"user:location:predicate:havebeenstayed"`
+	UserLocationIsJapan        bool   `json:"user:location:predicate:isjapan"`
 }
 
-func (c Context) Filtered(scopes []string) Context {
+func (c *Context) toJSON() map[string]interface{} {
 	cJSON, err := json.Marshal(c)
 	if err != nil {
-		return c
+		panic("arien")
 	}
 	var cMap map[string]interface{}
-	log.Print(string(cJSON))
 	if err := json.Unmarshal(cJSON, &cMap); err != nil {
-		return c
+		panic("arien")
 	}
+	return cMap
+}
+func fromJSON(cMap map[string]interface{}) (*Context, error) {
+	cJSON, err := json.Marshal(cMap)
+	if err != nil {
+		return nil, err
+	}
+	var ret Context
+	if err := json.Unmarshal(cJSON, &ret); err != nil {
+		return nil, err
+	}
+	return &ret, nil
+}
+
+func (c *Context) Filtered(scopes []string) Context {
+	cMap := c.toJSON()
 	filtered := make(map[string]interface{})
 	for _, scope := range scopes {
 		filtered[scope] = cMap[scope]
-		filtered["have_been_used_this_"+scope] = cMap["have_been_used_this_"+scope]
 	}
-	cJSON, err = json.Marshal(filtered)
+	ret, err := fromJSON(filtered)
 	if err != nil {
-		return c
+		return Context{}
 	}
-	var ans Context
-	if err := json.Unmarshal(cJSON, &ans); err != nil {
-		return c
-	}
-	return ans
+	return *ret
 }
 
 type ContextStore interface {
-	Save(userID string, r *http.Request)
-	Update(setClaims *token.SETClaims)
+	Save(userID string, userctx *Context)
+	SaveFromClaims(claims *token.SETClaims)
 	Load(userID string) (*Context, bool)
 }
 
 func NewCtxStore() ContextStore {
 	return &ctxStore{
-		db: make(map[string]*Context),
+		db: make(map[string]Context),
 	}
 }
 
 type ctxStore struct {
-	db map[string]*Context
+	db map[string]Context
 	l  sync.RWMutex
 }
 
-func (c *ctxStore) Save(userID string, r *http.Request) {
+func (c *ctxStore) Save(userID string, userctx *Context) {
 	c.l.Lock()
 	defer c.l.Unlock()
-	ctx, ok := c.db[userID]
+	ctxs, ok := c.db[userID]
 	if !ok {
-		ctx = new(Context)
+		ctxs = Context{}
 	}
-
-	ipaddr := r.RemoteAddr
-	ctx.IPAddr = ipaddr
-	if find(ctx.ipaddrs, ipaddr) {
-		ctx.HaveBeenUsedThisIPAddr = true
+	now := ctxs.toJSON()
+	updated := userctx.toJSON()
+	k := "device:useragent:raw"
+	if _, ok := updated[k]; ok {
+		k2 := "device:useragent:predicate:havebeenused"
+		if !now[k2].(bool) {
+			if nowk2, ok := now[k].(string); ok {
+				now[k2] = nowk2 == updated[k].(string)
+			}
+			now[k2] = false
+		}
+		now[k] = updated[k]
 	} else {
-		ctx.HaveBeenUsedThisIPAddr = false
+		k = "device:useragent:predicate:havebeenused"
+		if _, ok := updated[k]; ok {
+			now[k] = updated[k]
+		}
 	}
-	ctx.ipaddrs = append(ctx.ipaddrs, ipaddr)
-	ua := r.UserAgent()
-	ctx.UserAgent = ua
-	if find(ctx.uas, ua) {
-		ctx.HaveBeenUsedThisUA = true
+	k = "user:location:raw"
+	if _, ok := updated[k]; ok {
+		k2 := "user:location:predicate:havebeenstayed"
+		if !now[k2].(bool) {
+			if nowk2, ok := now[k].(string); ok {
+				now[k2] = nowk2 == updated[k].(string)
+			}
+			now[k2] = false
+		}
+		now[k] = updated[k]
+		k2 = "user:location:predicate:isjapan"
+		now[k2] = updated[k].(string) == "ja"
 	} else {
-		ctx.HaveBeenUsedThisUA = false
+		k = "user:location:predicate:havebeenstayed"
+		if _, ok := updated[k]; ok {
+			now[k] = updated[k]
+		}
+		k = "user:location:predicate:isjapan"
+		if _, ok := updated[k]; ok {
+			now[k] = updated[k]
+		}
 	}
-	log.Printf("Save ctx: %#v", ctx)
-	ctx.uas = append(ctx.uas, ua)
-	c.db[userID] = ctx
-}
-
-func (c *ctxStore) Update(setClaims *token.SETClaims) {
-	c.l.Lock()
-	defer c.l.Unlock()
-	ctx, ok := c.db[setClaims.Subject]
-	if !ok {
-		ctx = new(Context)
-	}
-	cJSON, err := json.Marshal(ctx)
+	nowctx, err := fromJSON(now)
 	if err != nil {
-		panic("arien")
+		panic(fmt.Sprintf("bikkuri %#v", now))
 	}
-	var before map[string]interface{}
-	if err := json.Unmarshal(cJSON, &before); err != nil {
-		panic("arien")
-	}
-	cMap := make(map[string]interface{})
-	for k, v := range setClaims.Events {
-		if index := strings.Index(k, ":raw"); index != -1 {
-			cMap[k[:index]] = v
-			continue
-		}
-		if index := strings.Index(k, ":predicate:"); index != -1 {
-			log.Printf("createPublishingEvents predicate not impl %#v", k)
-			continue
-		}
-	}
-	for k, v := range cMap {
-		before[k] = v
-	}
-	cJSON, err = json.Marshal(before)
-	var ans Context
-	if err := json.Unmarshal(cJSON, &ans); err != nil {
-		panic("!!!!")
-	}
-	log.Printf("updated ctx: %#v", ans)
-	c.db[setClaims.Subject] = &ans
+	c.db[userID] = *nowctx
 }
 
-func (c *ctxStore) Load(userID string) (ctx *Context, ok bool) {
+func (c *ctxStore) SaveFromClaims(claims *token.SETClaims) {
+	log.Printf("ctxStore.SaveFromClaims %#v", claims.Events)
+	updatectx, err := fromJSON(claims.Events)
+	if err != nil {
+		return
+	}
+	log.Printf("ctxStore.SaveFromClaims %#v", updatectx)
+	c.Save(claims.Subject, updatectx)
+}
+
+func (c *ctxStore) Load(userID string) (*Context, bool) {
 	c.l.RLock()
 	defer c.l.RUnlock()
-	ctx, ok = c.db[userID]
-	return
+	ctx, ok := c.db[userID]
+	return &ctx, ok
 }
 
 func find(l []string, x string) bool {

@@ -1,7 +1,6 @@
 package cap
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -39,6 +38,7 @@ type caepsvc struct {
 	ctxs ContextStore
 }
 
+// CAPからRPへトークンを提供するために、RPがサブスクを登録する先
 func (c *caepsvc) RegisterSubscription(endpoint string, scopes string) {
 	log.Printf("scopes : %#v", scopes)
 	for _, scope := range strings.Split(scopes, " ") {
@@ -51,32 +51,21 @@ func (c *caepsvc) RegisterSubscription(endpoint string, scopes string) {
 			continue
 		}
 	}
+	log.Printf("#%v\n#%v", c.rps.db, c.rps.db2)
 }
 
+// サブスクを登録を受けて最初のコンテキストを提供する
 func (c *caepsvc) InitPublish(endpoint string, consenttoken *authorizer.IntroToken, userctx *Context) {
 	events := map[string]interface{}{}
-	cJSON, err := json.Marshal(userctx)
-	if err != nil {
-		panic("arien")
-	}
-	var cMap map[string]interface{}
-	if err := json.Unmarshal(cJSON, &cMap); err != nil {
-		panic("arien")
-	}
+	cMap := userctx.toJSON()
 	for _, scope := range strings.Split(consenttoken.Scope, " ") {
-		if index := strings.Index(scope, ":raw"); index != -1 {
-			events[scope] = cMap[scope[:index]]
-			continue
-		}
-		if index := strings.Index(scope, ":predicate:"); index != -1 {
-			log.Printf("createPublishingEvents predicate not impl %#v", scope)
-			continue
-		}
+		events[scope] = cMap[scope]
 	}
 
 	c.publish(endpoint, consenttoken.UserName, events)
 }
 
+// RPがCAPへContextを送るエンドポイント用
 func (c *caepsvc) CollectCtx(w http.ResponseWriter, r *http.Request) {
 	setClaims, err := token.ExtractSETClaimsFrom(r)
 	if err != nil {
@@ -84,58 +73,38 @@ func (c *caepsvc) CollectCtx(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("CAEPSVC.Subscribe succeeded %#v", setClaims)
-	c.collectSETandPublish(setClaims)
+	c.ctxs.SaveFromClaims(setClaims)
+	c.prepareAndPublish(setClaims)
 	w.WriteHeader(201)
 	return
 }
 
-func (c *caepsvc) collectSETandPublish(claims *token.SETClaims) {
-	c.ctxs.Update(claims)
-	events := claims.Events
-	publishqueue := make(map[string][]struct {
-		ctxid, level string
-		ctx          interface{}
-	})
-	for eventID, value := range events {
-		var ctxID string
-		if index := strings.Index(eventID, ":raw"); index != -1 {
-			ctxID = eventID[:index]
-		} else if index := strings.Index(eventID, ":predicate:"); index != -1 {
-			panic("collect set ctx must be raw-level")
-		}
+func (c *caepsvc) prepareAndPublish(claims *token.SETClaims) {
+	eventPerEndpoint := make(map[string]map[string]interface{})
+	v, ok := c.ctxs.Load(claims.Subject)
+	if !ok {
+		return
+	}
+	updatedctx := v.toJSON()
+	log.Printf("CAEPSVC.prepareAndPublish updatedctx %#v", updatedctx)
+	log.Printf("CAEPSVC.prepareAndPublish  %#v", claims.ExtractUpdatedCtxID())
+	for ctxID, _ := range claims.ExtractUpdatedCtxID() {
 		for _, rpl := range c.rps.LoadRPs(ctxID) {
-			publishqueue[rpl.endpoint] = append(publishqueue[rpl.endpoint], struct {
-				ctxid string
-				level string
-				ctx   interface{}
-			}{ctxID, rpl.level, value})
+			v, ok := eventPerEndpoint[rpl.endpoint]
+			if !ok {
+				v = make(map[string]interface{})
+			}
+			scope := ctxID + ":" + rpl.level
+			v[scope] = updatedctx[scope]
+			eventPerEndpoint[rpl.endpoint] = v
 		}
 	}
-
-	for endpoint, updatedctx := range publishqueue {
-		events := createPublishingEvents(updatedctx)
-		if posted := c.publish(endpoint, claims.Subject, events); !posted {
-			log.Printf("failed to publish to %v about %#v", endpoint, events)
+	log.Printf("%#v", eventPerEndpoint)
+	for endpoint, updatedctx := range eventPerEndpoint {
+		if posted := c.publish(endpoint, claims.Subject, updatedctx); !posted {
+			log.Printf("failed to publish to %v about %#v", endpoint, updatedctx)
 		}
 	}
-}
-
-func createPublishingEvents(updatedctx []struct {
-	ctxid, level string
-	ctx          interface{}
-}) map[string]interface{} {
-	events := make(map[string]interface{})
-	for _, s := range updatedctx {
-		if strings.Contains(s.level, "raw") {
-			events[s.ctxid+s.level] = s.ctx
-			continue
-		}
-		if strings.Contains(s.level, "predicate") {
-			log.Printf("createPublishingEvents preficate not impl %#v", s)
-			continue
-		}
-	}
-	return events
 }
 
 func (c *caepsvc) publish(endpoint, sub string, events map[string]interface{}) bool {
@@ -152,6 +121,7 @@ func (c *caepsvc) publish(endpoint, sub string, events map[string]interface{}) b
 		fmt.Printf("error %#v", err)
 		return false
 	}
+	log.Printf("cap publish to %#v about %#v", endpoint, claims)
 	req, err := http.NewRequest("POST", endpoint, strings.NewReader(setStr))
 	if err != nil {
 		fmt.Printf("error %#v", err)

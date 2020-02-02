@@ -8,7 +8,6 @@ import (
 	"soturon/ctxval"
 	"soturon/session"
 	"soturon/util"
-	"strconv"
 )
 
 type PEP interface {
@@ -63,8 +62,9 @@ func (p *pep) ViewCtx(w http.Response, r *http.Request) {
 
 func (p *pep) UpdateCtxForm(w http.ResponseWriter, r *http.Request) {
 	updatectx := &cap.Context{
-		IPAddr:    "new ipaddress",
-		UserAgent: "new ua",
+		UserAgent:           "new ua",
+		UserLocation:        "ja",
+		UserLocationIsJapan: true,
 	}
 	p.CollextCtx("alice", updatectx)
 }
@@ -139,23 +139,23 @@ func (m *sessionManager) FindClientKey(sID string) (k string, ok bool) {
 	return
 }
 
-func contextInfoPage(actx *cap.Context) string {
-	ipaddrList := "<li> IPAddr"
-	if actx.IPAddr != "" {
-		ipaddrList += ("<ul>" + "<li>" + actx.IPAddr + "</li><li> ２回目？: " + strconv.FormatBool(actx.HaveBeenUsedThisIPAddr) + "</li></ul>")
-	} else {
-		ipaddrList += "IPAddr を見る権限がありません"
-	}
-	ipaddrList += "</li>"
-	uaList := "<li> UserAgent"
-	if actx.UserAgent != "" {
-		uaList += ("<ul>" + "<li> " + actx.UserAgent + "</li><li> ２回目?: " + strconv.FormatBool(actx.HaveBeenUsedThisUA) + "</li></ul>")
-	} else {
-		uaList += "UserAgent を見る権限がありません"
-	}
-	uaList += "</li>"
-	return fmt.Sprintf(`<html><head/><body>
-	<ul>%v%v</ul>
-	</body></html>`, ipaddrList, uaList)
+// func contextInfoPage(actx *cap.Context) string {
+// 	ipaddrList := "<li> IPAddr"
+// 	if actx.IPAddr != "" {
+// 		ipaddrList += ("<ul>" + "<li>" + actx.IPAddr + "</li><li> ２回目？: " + strconv.FormatBool(actx.HaveBeenUsedThisIPAddr) + "</li></ul>")
+// 	} else {
+// 		ipaddrList += "IPAddr を見る権限がありません"
+// 	}
+// 	ipaddrList += "</li>"
+// 	uaList := "<li> UserAgent"
+// 	if actx.UserAgent != "" {
+// 		uaList += ("<ul>" + "<li> " + actx.UserAgent + "</li><li> ２回目?: " + strconv.FormatBool(actx.HaveBeenUsedThisUA) + "</li></ul>")
+// 	} else {
+// 		uaList += "UserAgent を見る権限がありません"
+// 	}
+// 	uaList += "</li>"
+// 	return fmt.Sprintf(`<html><head/><body>
+// 	<ul>%v%v</ul>
+// 	</body></html>`, ipaddrList, uaList)
 
-}
+// }
