@@ -20,9 +20,9 @@ func main() {
 		idp := idp.New(
 			idpConf.Addr,
 			map[string]*client.Config{
-				"cap-oidc-relyingparty": &client.Config{
-					ClientID:     "cap-oidc-relyingparty",
-					ClientSecret: "cap-oidc-relyingparty-secret",
+				"cap": &client.Config{
+					ClientID:     "cap",
+					ClientSecret: "cap-secret",
 					RedirectURL:  capConf.CallbackEndpoint(),
 					Scopes:       []string{"openid"},
 				},
@@ -40,8 +40,8 @@ func main() {
 	go func() {
 		// Service Provider その１と それ用の Policy Enforcement Point の用意
 		pep := pep.New(client.Config{
-			ClientID:     "pep-oauth-client",
-			ClientSecret: "pep-oauth-client-secret",
+			ClientID:     "rp1",
+			ClientSecret: "rp1-secret",
 			RedirectURL:  rp1Conf.CallbackEndponit(),
 			Endpoint: struct {
 				Authz string
@@ -64,7 +64,7 @@ func main() {
 			"http://"+rp1Conf.Addr+"/",
 			capConf.CollectEndponit())
 		mux := http.NewServeMux()
-		mux.Handle("/", pep)
+		mux.Handle("/access", pep)
 		mux.HandleFunc("/register", pep.RegisterSubsc)
 		mux.HandleFunc("/callback", pep.Callback)
 		mux.HandleFunc("/subscribe", pep.Subscribe)
@@ -78,8 +78,8 @@ func main() {
 	go func() {
 		// Service Provider その2と それ用の Policy Enforcement Point の用意
 		pep := pep.New(client.Config{
-			ClientID:     "pep-oauth-client-2",
-			ClientSecret: "pep-oauth-client-2-secret",
+			ClientID:     "rp2",
+			ClientSecret: "rp2-secret",
 			RedirectURL:  rp2Conf.CallbackEndponit(),
 			Endpoint: struct {
 				Authz string
@@ -99,7 +99,7 @@ func main() {
 			"http://"+rp2Conf.Addr+"/",
 			capConf.CollectEndponit())
 		mux := http.NewServeMux()
-		mux.Handle("/", pep)
+		mux.Handle("/access", pep)
 		mux.HandleFunc("/register", pep.RegisterSubsc)
 		mux.HandleFunc("/callback", pep.Callback)
 		mux.HandleFunc("/subscribe", pep.Subscribe)
@@ -113,9 +113,9 @@ func main() {
 	// Contxt Attribute Provider の用意
 	cap := cap.New(
 		map[string]*client.Config{
-			"pep-oauth-client": &client.Config{
-				ClientID:     "pep-oauth-client",
-				ClientSecret: "pep-oauth-client-secret",
+			"rp1": &client.Config{
+				ClientID:     "rp1",
+				ClientSecret: "rp1-secret",
 				RedirectURL:  rp1Conf.CallbackEndponit(),
 				Scopes: []string{
 					"device:useragent:raw",
@@ -125,9 +125,9 @@ func main() {
 					"user:location:predicate:isjapan",
 				},
 			},
-			"pep-oauth-client-2": &client.Config{
-				ClientID:     "pep-oauth-client-2",
-				ClientSecret: "pep-oauth-client-2-secret",
+			"rp2": &client.Config{
+				ClientID:     "rp2",
+				ClientSecret: "rp2-secret",
 				RedirectURL:  rp2Conf.CallbackEndponit(),
 				Scopes: []string{
 					"user:location:raw",
@@ -136,8 +136,8 @@ func main() {
 			},
 		},
 		&client.Config{
-			ClientID:     "cap-oidc-relyingparty",
-			ClientSecret: "cap-oidc-relyingparty-secret",
+			ClientID:     "cap",
+			ClientSecret: "cap-secret",
 			RedirectURL:  capConf.CallbackEndpoint(),
 			Scopes:       []string{"openid"},
 			Endpoint: struct {
@@ -149,8 +149,8 @@ func main() {
 			},
 		},
 		map[string]string{
-			"pep-oauth-client":   "http://" + rp1Conf.Addr + "/",
-			"pep-oauth-client-2": "http://" + rp2Conf.Addr + "/",
+			"rp1": "http://" + rp1Conf.Addr + "/",
+			"rp2": "http://" + rp2Conf.Addr + "/",
 		},
 		idpConf.UserInfoEndpoint(),
 		"http://"+capConf.Addr)

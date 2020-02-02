@@ -62,7 +62,7 @@ func (p *pep) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	<html>
 		<head></head>
 		<body>
-			<h1>welcome to RP9000</h1>
+			アクセスにはZTFでコンテキストを共有することについて同意してください。<br>
 			<a href="/register">CAPへサブスク登録</a>
 		</body?
 	</html>	
