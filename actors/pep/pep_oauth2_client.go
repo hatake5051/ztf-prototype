@@ -2,15 +2,13 @@ package pep
 
 import (
 	"context"
-	"encoding/json"
-	"io/ioutil"
 	"log"
-	"mime"
 	"net/http"
-	"soturon/actors/cap"
+	"net/url"
 	"soturon/client"
 	"soturon/ctxval"
 	"soturon/session"
+	"strings"
 	"sync"
 )
 
@@ -21,11 +19,11 @@ type OC interface {
 	Callback(w http.ResponseWriter, r *http.Request)
 	// clientKey が k の OAtuth2.0 Client が有効なトークンを取得しているか
 	HasToken(k string) bool
-	// clientKey が k の OAtuth2.0 Client にコンテキストを取得させる
-	FetchContext(clientKey string) (*cap.Context, bool)
+	// clientKey が k の OAtuth2.0 Client に CAEP Subsciber を登録させる
+	RegisterSubscription(clientKey string) bool
 }
 
-func newOC(conf client.Config, redirectBackURL, contextURL string) OC {
+func newOC(conf client.Config, redirectBackURL, registerSubURL, subscriptionURL string) OC {
 	return &pepoc{
 		sm: &ocSessionManager{
 			Manager:    session.NewManager(),
@@ -36,7 +34,8 @@ func newOC(conf client.Config, redirectBackURL, contextURL string) OC {
 			db:   make(map[string]client.Client),
 		},
 		redirectBackURL: redirectBackURL,
-		contextURL:      contextURL,
+		subscriptinoURL: subscriptionURL,
+		registerSubURL:  registerSubURL,
 	}
 }
 
@@ -44,7 +43,8 @@ type pepoc struct {
 	sm              *ocSessionManager
 	cm              *clientManager
 	redirectBackURL string
-	contextURL      string
+	subscriptinoURL string
+	registerSubURL  string
 }
 
 func (p *pepoc) Authorize(w http.ResponseWriter, r *http.Request) {
@@ -94,44 +94,29 @@ func (p *pepoc) HasToken(k string) bool {
 	return c.HasToken()
 }
 
-func (p *pepoc) FetchContext(clientKey string) (*cap.Context, bool) {
+func (p *pepoc) RegisterSubscription(clientKey string) bool {
 	// 対応するクライアントを検索
 	c, ok := p.cm.find(clientKey)
 	if !ok {
-		return nil, false
+		return false
 	}
 	// Context Provider のエンドポイントへのリクエストを作成
-	req, err := http.NewRequest("GET", p.contextURL, nil)
+	req, err := http.NewRequest("POST", p.registerSubURL, strings.NewReader(url.Values{"url": {p.subscriptinoURL}}.Encode()))
 	if err != nil {
-		return nil, false
+		return false
 	}
+	// 尋ね方はフォーム形式のPOSTメソッド
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	// もちろんトークンをリクエストに付与
 	c.SetTokenToHeader(&req.Header)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, false
+		return false
 	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, false
+	if status := resp.StatusCode; status != 201 {
+		return false
 	}
-	if status := resp.StatusCode; status < 200 || status >= 300 {
-		return nil, false
-	}
-	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if err != nil {
-		return nil, false
-	}
-	if contentType != "application/json" {
-		return nil, false
-	}
-	actx := &cap.Context{}
-	if err := json.Unmarshal(body, actx); err != nil {
-		return nil, false
-	}
-	// レスポンスをJSONデシリアライズする
-	return actx, true
+	return true
 }
 
 type ocSessionManager struct {

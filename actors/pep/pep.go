@@ -13,16 +13,20 @@ import (
 
 type PEP interface {
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
+	RegisterSubsc(w http.ResponseWriter, r *http.Request)
 	Callback(w http.ResponseWriter, r *http.Request)
+	Subscribe(w http.ResponseWriter, r *http.Request)
+	UpdateCtxForm(w http.ResponseWriter, r *http.Request)
 }
 
-func New(conf client.Config, ocredirectBackURL, contextEndpoint string) PEP {
+func New(conf client.Config, ocredirectBackURL, registerSubURL, subscriptionEndpoint, publishIssuer, publishEndpoint string) PEP {
 	return &pep{
 		sm: &sessionManager{
 			Manager:    session.NewManager(),
 			cookieName: "policy-enforcement-point-session-id",
 		},
-		OC: newOC(conf, ocredirectBackURL, contextEndpoint),
+		OC:     newOC(conf, ocredirectBackURL, registerSubURL, subscriptionEndpoint),
+		CAEPRP: newCAEPRP(publishIssuer, publishEndpoint),
 	}
 }
 
@@ -31,32 +35,43 @@ type pep struct {
 	sm *sessionManager
 	// OAuth2.0 Client in PEP for fetching token
 	OC
+	CAEPRP
 }
 
-// PEP のエントリポイント。現状は、SPへアクセスする際に必ず通るハンドラ。
 func (p *pep) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if ok := p.front(r); !ok {
+	fmt.Fprintf(w, "pep index page")
+}
+
+func (p *pep) RegisterSubsc(w http.ResponseWriter, r *http.Request) {
+	if ok := p.hasToken(r); !ok {
 		// トークンを持っていなければ、トークン取得フローを始める
 		p.newSession(w, r)
 		return
 	}
 	// token があればコンテキストを取得しに行く
-	actx, ok := p.fetchContext(r)
+	ok := p.registerSubscription(r)
 	if !ok {
 		p.newSession(w, r)
 		return
 	}
-	// PE に ctx に基づいた Policy Decision を尋ねる
-	if ok := p.requestPolicyDecision(actx); !ok {
-		fmt.Fprint(w, "access denied")
-		return
+	fmt.Fprintf(w, "succeeded")
+}
+
+func (p *pep) ViewCtx(w http.Response, r *http.Request) {
+
+}
+
+func (p *pep) UpdateCtxForm(w http.ResponseWriter, r *http.Request) {
+	updatectx := &cap.Context{
+		IPAddr:    "new ipaddress",
+		UserAgent: "new ua",
 	}
-	fmt.Fprintf(w, contextInfoPage(actx))
+	p.CollextCtx("alice", updatectx)
 }
 
 // リクエストのクッキーを確認し、セッションが確立しているか、
 // またそのセッションでトークンを取得しているかをチェックする
-func (p *pep) front(r *http.Request) bool {
+func (p *pep) hasToken(r *http.Request) bool {
 	k, ok := p.sm.FindClientKeyFromCokkie(r)
 	if !ok {
 		// セッション未確立
@@ -69,13 +84,13 @@ func (p *pep) front(r *http.Request) bool {
 	return true
 }
 
-func (p *pep) fetchContext(r *http.Request) (*cap.Context, bool) {
+func (p *pep) registerSubscription(r *http.Request) bool {
 	// このセッションに対応したクライアントキーを取得
 	k, ok := p.sm.FindClientKeyFromCokkie(r)
 	if !ok {
-		return nil, false
+		return false
 	}
-	return p.FetchContext(k)
+	return p.RegisterSubscription(k)
 }
 
 // セッションを新しく作り、そこでトークン取得用クライアントを作成する

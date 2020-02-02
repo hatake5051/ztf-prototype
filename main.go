@@ -43,11 +43,17 @@ func main() {
 				Authz: "http://localhost:9001/authorize",
 				Token: "http://localhost:9001/token",
 			},
-			Scopes: []string{"ipaddr", "useragent"},
-		}, "http://localhost:9000/", "http://localhost:9001/context")
+			Scopes: []string{"ipaddr:raw", "useragent:raw"},
+		}, "http://localhost:9000/",
+			"http://localhost:9001/registersubsc",
+			"http://localhost:9000/subscribe",
+			"http://localhost:9000/",
+			"http://localhost:9001/collect")
 		mux := http.NewServeMux()
-		mux.Handle("/", pep)
+		mux.HandleFunc("/register", pep.RegisterSubsc)
 		mux.HandleFunc("/callback", pep.Callback)
+		mux.HandleFunc("/subscribe", pep.Subscribe)
+		mux.HandleFunc("/updatectx", pep.UpdateCtxForm)
 		if err := http.ListenAndServe(":9000", mux); err != nil {
 			log.Fatal(err)
 		}
@@ -66,11 +72,16 @@ func main() {
 				Authz: "http://localhost:9001/authorize",
 				Token: "http://localhost:9001/token",
 			},
-			Scopes: []string{"useragent"},
-		}, "http://localhost:9003/", "http://localhost:9001/context")
+			Scopes: []string{"useragent:raw"},
+		}, "http://localhost:9003/",
+			"http://localhost:9001/registersubsc",
+			"http://localhost:9003/subscribe",
+			"http://localhost:9003/",
+			"http://localhost:9001/collect")
 		mux := http.NewServeMux()
-		mux.Handle("/", pep)
+		mux.HandleFunc("/register", pep.RegisterSubsc)
 		mux.HandleFunc("/callback", pep.Callback)
+		mux.HandleFunc("/subscribe", pep.Subscribe)
 		if err := http.ListenAndServe(":9003", mux); err != nil {
 			log.Fatal(err)
 		}
@@ -83,7 +94,7 @@ func main() {
 				ClientID:     "pep-oauth-client",
 				ClientSecret: "pep-oauth-client-secret",
 				RedirectURL:  "http://localhost:9000/callback",
-				Scopes:       []string{"ipaddress", "useragent"},
+				Scopes:       []string{"ipaddress:raw", "useragent:raw"},
 			},
 			"pep-oauth-client-2": &client.Config{
 				ClientID:     "pep-oauth-client-2",
@@ -106,14 +117,16 @@ func main() {
 			"pep-oauth-client":   "http://localhost:9000/",
 			"pep-oauth-client-2": "http://localhost:9003/",
 		},
-		"http://localhost:9002/userinfo")
+		"http://localhost:9002/userinfo", "http://localhost:9001")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/authorize", cap.Authorize)
 	mux.HandleFunc("/approve", cap.Approve)
 	mux.HandleFunc("/token", cap.Token)
 	mux.HandleFunc("/introspect", cap.IntroSpect)
 	mux.HandleFunc("/callback", cap.Callback)
-	mux.Handle("/context", cap)
+	mux.HandleFunc("/registersubsc", cap.RegisterSubsc)
+	mux.HandleFunc("/collect", cap.CollectCtx)
+	mux.Handle("/register", cap)
 	if err := http.ListenAndServe(":9001", mux); err != nil {
 		log.Fatal(err)
 	}

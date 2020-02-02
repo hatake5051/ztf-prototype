@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"soturon/token"
+	"strings"
 	"sync"
 )
 
@@ -44,6 +46,7 @@ func (c Context) Filtered(scopes []string) Context {
 
 type ContextStore interface {
 	Save(userID string, r *http.Request)
+	Update(setClaims *token.SETClaims)
 	Load(userID string) (*Context, bool)
 }
 
@@ -68,7 +71,6 @@ func (c *ctxStore) Save(userID string, r *http.Request) {
 
 	ipaddr := r.RemoteAddr
 	ctx.IPAddr = ipaddr
-	log.Printf("ipaddresss: %#v, ipaddr: %#v", ctx.ipaddrs, ipaddr)
 	if find(ctx.ipaddrs, ipaddr) {
 		ctx.HaveBeenUsedThisIPAddr = true
 	} else {
@@ -85,6 +87,44 @@ func (c *ctxStore) Save(userID string, r *http.Request) {
 	log.Printf("Save ctx: %#v", ctx)
 	ctx.uas = append(ctx.uas, ua)
 	c.db[userID] = ctx
+}
+
+func (c *ctxStore) Update(setClaims *token.SETClaims) {
+	c.l.Lock()
+	defer c.l.Unlock()
+	ctx, ok := c.db[setClaims.Subject]
+	if !ok {
+		ctx = new(Context)
+	}
+	cJSON, err := json.Marshal(ctx)
+	if err != nil {
+		panic("arien")
+	}
+	var before map[string]interface{}
+	if err := json.Unmarshal(cJSON, &before); err != nil {
+		panic("arien")
+	}
+	cMap := make(map[string]interface{})
+	for k, v := range setClaims.Events {
+		if index := strings.Index(k, ":raw"); index != -1 {
+			cMap[k[:index]] = v
+			continue
+		}
+		if index := strings.Index(k, ":predicate:"); index != -1 {
+			log.Printf("createPublishingEvents predicate not impl %#v", k)
+			continue
+		}
+	}
+	for k, v := range cMap {
+		before[k] = v
+	}
+	cJSON, err = json.Marshal(before)
+	var ans Context
+	if err := json.Unmarshal(cJSON, &ans); err != nil {
+		panic("!!!!")
+	}
+	log.Printf("updated ctx: %#v", ans)
+	c.db[setClaims.Subject] = &ans
 }
 
 func (c *ctxStore) Load(userID string) (ctx *Context, ok bool) {

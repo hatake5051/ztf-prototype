@@ -27,17 +27,21 @@ type CAP interface {
 	IntroSpect(w http.ResponseWriter, r *http.Request)
 	// Callback はIdPが発行する認可コードの受け取り先
 	Callback(w http.ResponseWriter, r *http.Request)
+	RegisterSubsc(w http.ResponseWriter, r *http.Request)
+	CollectCtx(w http.ResponseWriter, r *http.Request)
 }
 
-func New(registration map[string]*client.Config, conf *client.Config, rpRedirectURLs map[string]string, userInfoURL string) CAP {
+func New(registration map[string]*client.Config, conf *client.Config, rpRedirectURLs map[string]string, userInfoURL string, issueURL string) CAP {
+	ctxs := NewCtxStore()
 	cap := &cap{
 		a: authorizer.New(registration),
 		sm: &sessionManager{
 			Manager:    session.NewManager(),
 			cookieName: "context-attribute-provider-session-id",
 		},
-		CAPRP: newCAPRP(conf, rpRedirectURLs, userInfoURL),
-		ctxs:  NewCtxStore(),
+		CAPRP:   newCAPRP(conf, rpRedirectURLs, userInfoURL),
+		caepsvc: newCAEPSVC(issueURL, ctxs),
+		ctxs:    ctxs,
 	}
 	return cap
 }
@@ -46,60 +50,66 @@ type cap struct {
 	a  authorizer.Authorizer
 	sm *sessionManager
 	CAPRP
-	ctxs ContextStore
+	caepsvc CAEPSVC
+	ctxs    ContextStore
 }
 
 func (c *cap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "index page")
+}
+
+func (c *cap) RegisterSubsc(w http.ResponseWriter, r *http.Request) {
+	introToken, ok := c.tokenIntrospect(r)
+	if !ok {
+		http.Error(w, fmt.Sprintf("cannot introspect token %#v", r.Header.Get("Authorization")), http.StatusBadRequest)
+		return
+	}
+	registeringSubscriptionEndpoint := r.FormValue("url")
+	log.Printf("cap recieve registeringSubscriptionEndpoint %#v", registeringSubscriptionEndpoint)
+	c.caepsvc.RegisterSubscription(registeringSubscriptionEndpoint, introToken.Scope)
+	userctx, _ := c.ctxs.Load(introToken.UserName)
+	c.caepsvc.InitPublish(registeringSubscriptionEndpoint, introToken, userctx)
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (c *cap) tokenIntrospect(r *http.Request) (*authorizer.IntroToken, bool) {
 	// トークンを取り出す
 	bearerPlusToken := strings.Split(r.Header.Get("Authorization"), " ")
 	t := bearerPlusToken[1]
 	// トークンが正しいかIntroSpect endpoint に尋ねる
 	req, err := http.NewRequest("POST", "http://localhost:9001/introspect", strings.NewReader(url.Values{"token": {t}}.Encode()))
 	if err != nil {
-		return
+		return nil, false
 	}
 	// 尋ね方はフォーム形式のPOSTメソッド
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return
+		return nil, false
 	}
 	defer resp.Body.Close()
 	// Response を検証
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return
+		return nil, false
 	}
 	if status := resp.StatusCode; status < 200 || status >= 300 {
-		return
+		return nil, false
 	}
 	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
-		return
+		return nil, false
 	}
 	if contentType != "application/json" {
-		return
+		return nil, false
 	}
 	// Response をデシリアライズ
 	introToken := new(authorizer.IntroToken)
 	if err := json.Unmarshal(body, introToken); err != nil {
-		return
+		return nil, false
 	}
-	log.Printf("cap.introspect token: %#v", introToken)
-	// このトークンによって提供するコンテキストを検索
-	// 今回は IntroToken の中の ユーザネームをキーとしてコンテキストを提供する
-	actx, ok := c.ctxs.Load(introToken.UserName)
-	if !ok {
-		return
-	}
-	// Token で許可されたものだけをフィルターしてJSON化する
-	actxJSON, err := json.Marshal(actx.Filtered(strings.Split(introToken.Scope, " ")))
-	if err != nil {
-		return
-	}
-	// コンテキストを返す
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(actxJSON)
+	log.Printf("cap.tokenIntroSpect token: %#v", introToken)
+	return introToken, true
 }
 
 func (c *cap) Authorize(w http.ResponseWriter, r *http.Request) {
@@ -123,8 +133,6 @@ func (c *cap) Authorize(w http.ResponseWriter, r *http.Request) {
 		// ダメになることはないだろう...
 		return
 	}
-	// 今の所ユーザネームをキーとしてリクエストをコンテキストとして保存する
-	c.ctxs.Save(user.Name, r)
 	// トークン発行を承認するかユーザに尋ねるための情報をリクエストから取得
 	req, err := c.a.Authorize(user, w, r)
 	if err != nil {
@@ -132,6 +140,10 @@ func (c *cap) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	// ユーザに同意を促すページをレスポンス
 	fmt.Fprint(w, consentPage(req, user))
+}
+
+func (c *cap) CollectCtx(w http.ResponseWriter, r *http.Request) {
+	c.caepsvc.CollectCtx(w, r)
 }
 
 func (c *cap) newSession(w http.ResponseWriter, r *http.Request) {
