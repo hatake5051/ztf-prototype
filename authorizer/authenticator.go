@@ -3,6 +3,7 @@ package authorizer
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"soturon/client"
 	"strings"
@@ -48,6 +49,7 @@ func (a *authenticator) Authenticate(w http.ResponseWriter, r *http.Request) {
 
 func (a *authenticator) LoginAndApprove(w http.ResponseWriter, r *http.Request) {
 	// リクエストからユーザの同意を確認し、問題なければコードを発行する
+	log.Printf("%#v", r)
 	code, opts := a.front.IssueCode(w, r)
 	if code == "" {
 		// 同意がない、もしくは認証に失敗すると、

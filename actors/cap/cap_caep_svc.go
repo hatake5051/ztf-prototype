@@ -40,7 +40,6 @@ type caepsvc struct {
 
 // CAPからRPへトークンを提供するために、RPがサブスクを登録する先
 func (c *caepsvc) RegisterSubscription(endpoint string, scopes string) {
-	log.Printf("scopes : %#v", scopes)
 	for _, scope := range strings.Split(scopes, " ") {
 		if index := strings.Index(scope, ":raw"); index != -1 {
 			c.rps.Save(scope[:index], "raw", endpoint)
@@ -51,7 +50,6 @@ func (c *caepsvc) RegisterSubscription(endpoint string, scopes string) {
 			continue
 		}
 	}
-	log.Printf("#%v\n#%v", c.rps.db, c.rps.db2)
 }
 
 // サブスクを登録を受けて最初のコンテキストを提供する
@@ -86,7 +84,6 @@ func (c *caepsvc) prepareAndPublish(claims *token.SETClaims) {
 		return
 	}
 	updatedctx := v.toJSON()
-	log.Printf("CAEPSVC.prepareAndPublish updatedctx %#v", updatedctx)
 	log.Printf("CAEPSVC.prepareAndPublish  %#v", claims.ExtractUpdatedCtxID())
 	for ctxID, _ := range claims.ExtractUpdatedCtxID() {
 		for _, rpl := range c.rps.LoadRPs(ctxID) {
@@ -99,7 +96,6 @@ func (c *caepsvc) prepareAndPublish(claims *token.SETClaims) {
 			eventPerEndpoint[rpl.endpoint] = v
 		}
 	}
-	log.Printf("%#v", eventPerEndpoint)
 	for endpoint, updatedctx := range eventPerEndpoint {
 		if posted := c.publish(endpoint, claims.Subject, updatedctx); !posted {
 			log.Printf("failed to publish to %v about %#v", endpoint, updatedctx)

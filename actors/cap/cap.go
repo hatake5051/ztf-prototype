@@ -65,7 +65,6 @@ func (c *cap) RegisterSubsc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	registeringSubscriptionEndpoint := r.FormValue("url")
-	log.Printf("cap recieve registeringSubscriptionEndpoint %#v", registeringSubscriptionEndpoint)
 	c.caepsvc.RegisterSubscription(registeringSubscriptionEndpoint, introToken.Scope)
 	userctx, _ := c.ctxs.Load(introToken.UserName)
 	c.caepsvc.InitPublish(registeringSubscriptionEndpoint, introToken, userctx)

@@ -3,7 +3,6 @@ package cap
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"soturon/token"
 	"sync"
 )
@@ -124,12 +123,10 @@ func (c *ctxStore) Save(userID string, userctx *Context) {
 }
 
 func (c *ctxStore) SaveFromClaims(claims *token.SETClaims) {
-	log.Printf("ctxStore.SaveFromClaims %#v", claims.Events)
 	updatectx, err := fromJSON(claims.Events)
 	if err != nil {
 		return
 	}
-	log.Printf("ctxStore.SaveFromClaims %#v", updatectx)
 	c.Save(claims.Subject, updatectx)
 }
 

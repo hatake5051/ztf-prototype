@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io/ioutil"
-	"log"
 	"mime"
 	"net/http"
 	"soturon/authorizer"
@@ -80,7 +79,7 @@ func (c *caprp) Callback(w http.ResponseWriter, r *http.Request) {
 	// IDトークンを取得したので、コンテキスト取得のためのトークン取得フローに戻す
 	// それは記憶しておいた /authorize に 戻してあげれば良い
 	redirect, ok := ctxval.Redirect(rp.Context())
-	log.Printf("carp callback r: %#v", redirect)
+	// log.Printf("carp callback r: %#v", redirect)
 	http.Redirect(w, r, redirect, http.StatusFound)
 }
 
