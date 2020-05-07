@@ -3,23 +3,27 @@ package authorizer
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"soturon/client"
 	"strings"
 )
 
 type Authenticator interface {
+	// ユーザ認証を行いながら、ユーザにRPに対して認証情報を提供するか尋ねる
 	Authenticate(w http.ResponseWriter, r *http.Request)
+	// ログイン画面の遷移先。クレデンシャル検証と認可コードをRPにリダイレクトする
 	LoginAndApprove(w http.ResponseWriter, r *http.Request)
+	// 認可コードを検証し、IDトークンを発行する
 	IssueIDToken(w http.ResponseWriter, r *http.Request)
 	UserInfo(w http.ResponseWriter, r *http.Request)
 }
 
-func NewAuthenticator(registration map[string]*client.Config) Authenticator {
+func NewAuthenticator(host string, registration map[string]*client.Config) Authenticator {
 	registered := NewClientRegistration(registration)
 	return &authenticator{
 		front:  NewAuthzCodeIssuer(registered),
-		back:   NewIDTokenIssuer(registered),
+		back:   NewIDTokenIssuer(registered, host),
 		tokens: NewIDTokenStore(),
 	}
 }
@@ -31,21 +35,28 @@ type authenticator struct {
 }
 
 func (a *authenticator) Authenticate(w http.ResponseWriter, r *http.Request) {
+	// 認証確認・認証情報同意ページで使う情報を取得
 	c, err := a.front.Consent(nil, w, r)
 	if err != nil {
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "%v", err)
 		return
 	}
+	// ページを表示
 	fmt.Fprint(w, authenticatePage(c))
 	return
 }
 
 func (a *authenticator) LoginAndApprove(w http.ResponseWriter, r *http.Request) {
+	// リクエストからユーザの同意を確認し、問題なければコードを発行する
+	log.Printf("%#v", r)
 	code, opts := a.front.IssueCode(w, r)
-	if code != "" {
+	if code == "" {
+		// 同意がない、もしくは認証に失敗すると、
 		fmt.Fprintf(w, "Access Denied")
+		return
 	}
+	// コードとトークン取得リクエストの正当性チェック情報を IDTokenIssuer に提供する
 	a.back.AddCode(code, opts)
 }
 
@@ -53,19 +64,24 @@ type loginInfo struct {
 }
 
 func (a *authenticator) IssueIDToken(w http.ResponseWriter, r *http.Request) {
+	// リクエストを検証し、IDトークンを発行
 	t, ok := a.back.IDToken(r)
 	if !ok {
+		// 検証に失敗
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "cannot return token")
 		return
 	}
+	// レスポンスはJSON形式
 	tJSON, err := json.Marshal(t)
 	if err != nil {
 		w.WriteHeader(500)
 		fmt.Fprintf(w, "cannot marshal token to JSON")
 		return
 	}
+	// トークンストアに登録
 	a.tokens.Add(t)
+	// レスポンス
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(tJSON)
 }

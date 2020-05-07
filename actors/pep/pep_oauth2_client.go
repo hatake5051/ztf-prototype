@@ -2,25 +2,28 @@ package pep
 
 import (
 	"context"
-	"encoding/json"
-	"io/ioutil"
-	"mime"
+	"log"
 	"net/http"
-	"soturon/actors/cap"
+	"net/url"
 	"soturon/client"
 	"soturon/ctxval"
 	"soturon/session"
+	"strings"
 	"sync"
 )
 
 type OC interface {
+	// 認可コード取得フローを行う
 	Authorize(w http.ResponseWriter, r *http.Request)
+	// 認可コード取得後にトークン取得フローを始める
 	Callback(w http.ResponseWriter, r *http.Request)
+	// clientKey が k の OAtuth2.0 Client が有効なトークンを取得しているか
 	HasToken(k string) bool
-	FetchContext(clientKey string) (*cap.Context, bool)
+	// clientKey が k の OAtuth2.0 Client に CAEP Subsciber を登録させる
+	RegisterSubscription(clientKey string) bool
 }
 
-func newOC(conf client.Config, redirectBackURL, contextURL string) OC {
+func newOC(conf client.Config, redirectBackURL, registerSubURL, subscriptionURL string) OC {
 	return &pepoc{
 		sm: &ocSessionManager{
 			Manager:    session.NewManager(),
@@ -31,7 +34,8 @@ func newOC(conf client.Config, redirectBackURL, contextURL string) OC {
 			db:   make(map[string]client.Client),
 		},
 		redirectBackURL: redirectBackURL,
-		contextURL:      contextURL,
+		subscriptinoURL: subscriptionURL,
+		registerSubURL:  registerSubURL,
 	}
 }
 
@@ -39,18 +43,22 @@ type pepoc struct {
 	sm              *ocSessionManager
 	cm              *clientManager
 	redirectBackURL string
-	contextURL      string
+	subscriptinoURL string
+	registerSubURL  string
 }
 
 func (p *pepoc) Authorize(w http.ResponseWriter, r *http.Request) {
-	k, ok := ctxval.ClientKey(r.Context())
-	if !ok {
-		return
-	}
+	// Authorize は pep.newSession から呼び出される
+	// 必ずコンテキストの中に clientKey が存在している
+	k, _ := ctxval.ClientKey(r.Context())
+	// ユーザ用のクライアントを作成する
 	c := p.cm.create(r.Context(), k)
+	// セッションを作成する
 	sID := p.sm.UniqueID()
+	// そのセッションにクライアント識別子を記憶
 	p.sm.setClientKey(sID, k)
 	http.SetCookie(w, &http.Cookie{Name: p.sm.cookieName, Value: sID})
+	// CAP Authorizer にリダイレクト
 	c.RedirectToAuthorizer(w, r)
 }
 
@@ -70,7 +78,11 @@ func (p *pepoc) Callback(w http.ResponseWriter, r *http.Request) {
 	if err := c.ExchangeCodeForToken(r); err != nil {
 		return
 	}
-	http.Redirect(w, r, p.redirectBackURL, http.StatusFound)
+	// トークンを取得したので、PEPのPolicyDecisionフローに戻す
+	// それは記憶しておいた /entrypoint に 戻してあげれば良い
+	redirect, ok := ctxval.Redirect(c.Context())
+	log.Printf("pepoc callback r: %#v", redirect)
+	http.Redirect(w, r, redirect, http.StatusFound)
 	return
 }
 
@@ -82,40 +94,29 @@ func (p *pepoc) HasToken(k string) bool {
 	return c.HasToken()
 }
 
-func (p *pepoc) FetchContext(clientKey string) (*cap.Context, bool) {
+func (p *pepoc) RegisterSubscription(clientKey string) bool {
+	// 対応するクライアントを検索
 	c, ok := p.cm.find(clientKey)
 	if !ok {
-		return nil, false
+		return false
 	}
-	req, err := http.NewRequest("GET", p.contextURL, nil)
+	// Context Provider のエンドポイントへのリクエストを作成
+	req, err := http.NewRequest("POST", p.registerSubURL, strings.NewReader(url.Values{"url": {p.subscriptinoURL}}.Encode()))
 	if err != nil {
-		return nil, false
+		return false
 	}
+	// 尋ね方はフォーム形式のPOSTメソッド
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// もちろんトークンをリクエストに付与
 	c.SetTokenToHeader(&req.Header)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, false
+		return false
 	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, false
+	if status := resp.StatusCode; status != 201 {
+		return false
 	}
-	if status := resp.StatusCode; status < 200 || status >= 300 {
-		return nil, false
-	}
-	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if err != nil {
-		return nil, false
-	}
-	if contentType != "application/json" {
-		return nil, false
-	}
-	actx := &cap.Context{}
-	if err := json.Unmarshal(body, actx); err != nil {
-		return nil, false
-	}
-	return actx, true
+	return true
 }
 
 type ocSessionManager struct {

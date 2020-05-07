@@ -11,7 +11,7 @@ const (
 	stateKey    contextKey = 0
 	tokenKey    contextKey = 1
 	idtokenKey  contextKey = 2
-	clientIDKey contextKey = 3
+	redirectKey contextKey = 3
 	clientKey   contextKey = 4
 	rpKey       contextKey = 5
 )
@@ -49,14 +49,14 @@ func IDToken(ctx context.Context) (t *token.IDToken, ok bool) {
 	return
 }
 
-// WithReferer は CAP RP が どの PEP にリダイレクトし直せば良いかをコンテキストに蓄積する。
-func WithClientID(ctx context.Context, r string) context.Context {
-	return context.WithValue(ctx, clientIDKey, r)
+// WithRedirect は CAP RP がトークン取得後、どこにリダイレクトし直せば良いかをコンテキストに蓄積する。
+func WithRedirect(ctx context.Context, r string) context.Context {
+	return context.WithValue(ctx, redirectKey, r)
 }
 
-// Referer は CAP RP が取得しておいた戻し先をコンテキストから取り出す。
-func ClientID(ctx context.Context) (r string, ok bool) {
-	r, ok = ctx.Value(clientIDKey).(string)
+// Redirect は CAP RP が取得しておいた戻し先をコンテキストから取り出す。
+func Redirect(ctx context.Context) (r string, ok bool) {
+	r, ok = ctx.Value(redirectKey).(string)
 	return
 }
 

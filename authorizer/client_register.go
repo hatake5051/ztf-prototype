@@ -5,11 +5,16 @@ import (
 	"sync"
 )
 
+// ClientRegistration は Oauth2.0 クライアント設定情報を記憶する
 type ClientRegistration interface {
+	// 新しくクライアント設定情報を登録
 	Register(c *client.Config) bool
+	// クライアントIDを元に 登録されているか検索
 	Find(clientID string) (*client.Config, bool)
 }
 
+// NewClientRegistration は新しくRegistrationを作成する
+// 引数として、事前に登録したいクライアント情報を与えることができる
 func NewClientRegistration(clients map[string]*client.Config) ClientRegistration {
 	return &clientRegistration{
 		registered: clients,

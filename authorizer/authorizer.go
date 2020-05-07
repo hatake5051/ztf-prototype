@@ -18,19 +18,21 @@ type Authorizer interface {
 	IntroSpect(w http.ResponseWriter, r *http.Request)
 }
 
-func New(registration map[string]*client.Config) Authorizer {
+func New(registration map[string]*client.Config, issueURL string) Authorizer {
 	registered := NewClientRegistration(registration)
 	return &authorizer{
-		front:  NewAuthzCodeIssuer(registered),
-		back:   NewTokenIssuer(registered),
-		tokens: NewTokenStore(),
+		front:    NewAuthzCodeIssuer(registered),
+		back:     NewTokenIssuer(registered),
+		tokens:   NewTokenStore(),
+		issueURL: issueURL,
 	}
 }
 
 type authorizer struct {
-	front  AuthzCodeIssuer
-	back   TokenIssuer
-	tokens TokenStore
+	front    AuthzCodeIssuer
+	back     TokenIssuer
+	tokens   TokenStore
+	issueURL string
 }
 
 func (a *authorizer) Authorize(user *User, w http.ResponseWriter, r *http.Request) (*client.Config, error) {
@@ -77,8 +79,8 @@ func (a *authorizer) IntroSpect(w http.ResponseWriter, r *http.Request) {
 		Active:   true,
 		UserName: ops.User.Name,
 		Scope:    t.Scope,
-		Issuer:   "http://localhost:9001",
-		Audience: "http://localhost:9000",
+		Issuer:   a.issueURL,
+		Audience: "http://" + r.Host,
 	}
 	itJSON, err := json.Marshal(it)
 	if err != nil {
