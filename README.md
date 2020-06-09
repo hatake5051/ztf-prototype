@@ -1,3 +1,6 @@
+# Publish
+- [DICOMO2020](https://github.com/hatake5051/ztf-prototype/tree/v1.0)
+
 # 実行の仕方
 デフォルトではconf.envには存在しないドメイン名を書いているため、hostsファイルなどに名前解決用の記述を追加。
 例えば、
