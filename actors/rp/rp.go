@@ -26,7 +26,7 @@ func New(idp string, ctrl ac.Controller) *mux.Router {
 	sCtxPIP := s.PathPrefix("/pip/ctx").Subrouter()
 	// TODO loop
 	sCtxPIP.HandleFunc("/0/callback", rp.OIDCCallback("http://localhost:9090"))
-	sCtxPIP.HandleFunc("/0/recv", rp.OIDCCallback("http://localhost:9090"))
+	sCtxPIP.HandleFunc("/0/recv", rp.RecvCtx("http://localhost:9090"))
 	return r
 }
 
@@ -125,7 +125,6 @@ func (rp *rp) RecvCtx(key string) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
 		return
 	}
 }

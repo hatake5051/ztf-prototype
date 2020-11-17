@@ -1,12 +1,14 @@
 package caep
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"mime"
 	"net/http"
 	"sync"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
 	"github.com/hatake5051/ztf-prototype/uma"
 )
@@ -57,7 +59,7 @@ func (tr *tr) GetCtxStreamConfig(w http.ResponseWriter, r *http.Request) {
 			URL            string `json:"url"`
 		}{
 			DeliveryMethod: "https://schemas.openid.net/secevent/risc/delivery-method/push",
-			URL:            "http://localhost:8080/pip/ctx/recv"},
+			URL:            "http://localhost:8080/auth/pip/ctx/0/recv"},
 		EventsSupported: []string{"ctx1", "ctx2"},
 		EventsRequested: []string{"ctx1", "ctx2"},
 		EventsDelivered: []string{"ctx1", "ctx2"},
@@ -106,9 +108,18 @@ func (tr *tr) AddSub(w http.ResponseWriter, r *http.Request) {
 	}
 	rpt := r.Header.Get("Authorization")
 	if rpt != "" { // TODO rpt validate
-		fmt.Printf("subject(%v)を追加しました\n", addSubReq)
-		tr.subjects.Store(addSubReq.Sub.SpagID, "ok")
-		w.WriteHeader(200)
+		fmt.Printf("subject(%v)を追加しました\nrpt: %s\n", addSubReq, rpt)
+		tr.subjects.Store(addSubReq.Sub.SpagID, rpt)
+		if err := tr.Transmit(addSubReq.Sub.SpagID, &Context{
+			Issuer: tr.Host,
+			ID:     "ctx1",
+			ScopeValues: map[string]string{
+				"scope1": "scope1-value",
+				"scope2": "scope2-value",
+			},
+		}); err != nil {
+			fmt.Printf("送信に失敗したらしい %v", err)
+		}
 		return
 	}
 	var reqreses []uma.ResReqForPT
@@ -132,4 +143,42 @@ func (tr *tr) AddSub(w http.ResponseWriter, r *http.Request) {
 	s := fmt.Sprintf(`UMA realm="%s",as_uri="%s",ticket="%s"`, pt.InitialOption.ResSrv, pt.InitialOption.AuthZSrv, pt.Ticket)
 	w.Header().Add("WWW-Authenticate", s)
 	w.WriteHeader(http.StatusUnauthorized)
+}
+
+func (tr *tr) Transmit(spagID string, c *Context) error {
+	v, ok := tr.subjects.Load(spagID)
+	if !ok {
+		return fmt.Errorf("spagid(%s) is not found in subjects", spagID)
+	}
+	rpt := v.(string)
+	fmt.Printf("spagID: %s のコンテキストを送信します-> rpt: %s\n", spagID, rpt)
+	set := &SETClaim{
+		Jti:    "metyakutya-random-na-unique-id",
+		Iss:    tr.Host,
+		Aud:    []string{"http://localhost:8080"},
+		Iat:    "genzai-zikoku",
+		Events: NewSETEventsClaim(spagID, c),
+	}
+	jwtSET := jwt.NewWithClaims(jwt.SigningMethodHS256, set)
+	ss, err := jwtSET.SignedString([]byte("secret-hs256-key"))
+	fmt.Printf("署名した %s", ss)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", "http://localhost:8080/auth/pip/ctx/0/recv", bytes.NewBuffer([]byte(ss)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/secevent+jwt")
+	resp, err := http.DefaultClient.Do(req)
+	fmt.Println("送信したよ")
+	if err != nil {
+		fmt.Println("失敗したよ")
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("respons status code unmatched : %v", resp.Status)
+	}
+	fmt.Printf("送信に成功 spagid: %s -> set: %s", spagID, ss)
+	return nil
 }

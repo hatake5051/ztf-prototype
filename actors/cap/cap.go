@@ -43,7 +43,6 @@ func (c *Conf) New() *mux.Router {
 	sCAEP.PathPrefix("/stream").Methods("GET").HandlerFunc(tr.GetCtxStreamConfig)
 	sCAEP.PathPrefix("/status/{spagID}").Methods("GET").HandlerFunc(tr.GetStreamStatus)
 	sCAEP.PathPrefix("/subject:add").Methods("POST").HandlerFunc(tr.AddSub)
-	r.HandleFunc("/per", cap.PermissionTicket)
 	s := r.PathPrefix("/auth").Subrouter()
 	r.PathPrefix("/oidc").Subrouter().HandleFunc("/callback", cap.OIDCCallback)
 	s.Use(cap.OIDCMW)
@@ -69,23 +68,6 @@ func (c *cap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprintf(w, "%#v", sub)
-}
-
-func (c *cap) PermissionTicket(w http.ResponseWriter, r *http.Request) {
-	res := uma.ResReqForPT{
-		ID:     r.FormValue("id"),
-		Scopes: strings.Split(r.FormValue("scopes"), " "),
-	}
-	pt, err := c.uma.PermissionTicket([]uma.ResReqForPT{res})
-	if err != nil {
-		log.Println("ここかな")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s := fmt.Sprintf(`UMA realm="%s",as_uri="%s",ticket="%s"`, c.host, pt.InitialOption.AuthZSrv, pt.Ticket)
-	w.Header().Add("WWW-Authenticate", s)
-	w.WriteHeader(http.StatusUnauthorized)
-	return
 }
 
 func (c *cap) CtxList(w http.ResponseWriter, r *http.Request) {

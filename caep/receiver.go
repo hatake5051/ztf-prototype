@@ -259,10 +259,6 @@ func (recv *recv) AddSubject(spagID string, reqctxs []Context) error {
 	return nil
 }
 
-func (set *SET) Valid() error {
-	return nil
-}
-
 func (recv *recv) Recv(r *http.Request) error {
 	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
@@ -277,11 +273,11 @@ func (recv *recv) Recv(r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	tok, err := jwt.ParseWithClaims(string(b), &SET{}, func(t *jwt.Token) (interface{}, error) {
+	tok, err := jwt.ParseWithClaims(string(b), &SETClaim{}, func(t *jwt.Token) (interface{}, error) {
 		// TODO: ベタガキをやめよう
 		return []byte("secret-hs256-key"), nil
 	})
-	if set, ok := tok.Claims.(*SET); ok && tok.Valid {
+	if set, ok := tok.Claims.(*SETClaim); ok && tok.Valid {
 		return recv.set(set.ToSubAndCtx())
 	}
 	return err

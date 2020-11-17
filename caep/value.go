@@ -87,7 +87,7 @@ type CtxStreamConfig struct {
 type AddSubReq struct {
 	Sub struct {
 		SubType string `json:"subject_type"`
-		SpagID  string `json:"spagID"`
+		SpagID  string `json:"spag_id"`
 	} `json:"subject"`
 	ReqCtx map[string][]string `json:"events_scopes_requested"`
 }
@@ -101,28 +101,48 @@ type Context struct {
 }
 
 // SET は caep で送受信される Security Event Token の Claim 部分を表す
-type SET struct {
-	Jti    string                 `json:"jti"`
-	Iss    string                 `json:"iss"`
-	Aud    []string               `json:"aud"`
-	Iat    string                 `json:"iat"`
-	Events map[string]interface{} `json:"events"`
+type SETClaim struct {
+	Jti    string                `json:"jti"`
+	Iss    string                `json:"iss"`
+	Aud    []string              `json:"aud"`
+	Iat    string                `json:"iat"`
+	Events map[string]EventClaim `json:"events"`
 }
 
-func (set *SET) ToSubAndCtx() (spagID string, c *Context) {
-	for id, vv := range set.Events {
-		v := vv.(map[string]interface{})
-		type Sub struct {
-			SubjectType string `json:"subject_type"`
-			SpagID      string `json:"spag_id"`
-		}
-		sub := v["subject"].(*Sub)
-		pro := v["property"].(map[string]string)
-		return sub.SpagID, &Context{
+func (set *SETClaim) Valid() error {
+	return nil
+}
+
+func (set *SETClaim) ToSubAndCtx() (spagID string, c *Context) {
+	for id, eClaim := range set.Events {
+		return eClaim.Subject.SpagID, &Context{
 			Issuer:      set.Iss,
 			ID:          id,
-			ScopeValues: pro,
+			ScopeValues: eClaim.Property,
 		}
 	}
 	return "", nil
+}
+
+type EventClaim struct {
+	ID      string `json:"-"`
+	Subject struct {
+		SubType string `json:"subject_type"`
+		SpagID  string `json:"spag_id"`
+	} `json:"subject"`
+	Property map[string]string `json:"property"`
+}
+
+func NewSETEventsClaim(spagID string, c *Context) map[string]EventClaim {
+	eClaim := EventClaim{
+		ID: c.ID,
+		Subject: struct {
+			SubType string "json:\"subject_type\""
+			SpagID  string "json:\"spag_id\""
+		}{"spag", spagID},
+		Property: c.ScopeValues,
+	}
+	return map[string]EventClaim{
+		eClaim.ID: eClaim,
+	}
 }
