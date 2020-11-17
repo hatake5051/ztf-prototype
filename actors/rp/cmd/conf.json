@@ -1,0 +1,64 @@
+{
+  "pip": {
+    "sub": {
+      "iss_list": [
+        "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto-idp2"
+      ],
+      "rp_config": {
+        "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto-idp2": {
+          "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto-idp2",
+          "client_id": "rp1",
+          "client_secret": "2c2a2ab9-7071-4c35-b5ac-7b0533ccbd01",
+          "redirect_url": "http://localhost:8080/auth/pip/sub/0/callback"
+        }
+      }
+    },
+    "ctx": {
+      "ctx_to_cap": {
+        "ctx1": "http://localhost:9090",
+        "ctx2": "http://localhost:9090"
+      },
+      "cap_to_rp": {
+        "http://localhost:9090": {
+          "authN": {
+            "cap": "http://localhost:9090",
+            "rp_config": {
+              "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
+              "client_id": "rp1",
+              "client_secret": "458e0d6b-64a4-4907-9663-ec876d06f11a",
+              "redirect_url": "http://localhost:8080/auth/pip/ctx/0/callback"
+            }
+          },
+          "recv": {
+            "caep": {
+              "host": "http://localhost:8080",
+              "pushed_endpoint": "http://localhost:8080/auth/pip/ctx/recv",
+              "iss": "http://localhost:9090"
+            },
+            "oauth2": {
+              "client_id": "rp1",
+              "client_secret": "458e0d6b-64a4-4907-9663-ec876d06f11a",
+              "token_endpoint": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto/protocol/openid-connect/token"
+            },
+            "uma": {
+              "authZ_srv": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
+              "rqp_credential": {
+                "name": "rp1",
+                "password": "rp1"
+              },
+              "oauth2": {
+                "client_id": "rp1",
+                "client_secret": "458e0d6b-64a4-4907-9663-ec876d06f11a",
+                "endpoints": {
+                  "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto/protocol/openid-connect/auth",
+                  "token": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto/protocol/openid-connect/token"
+                },
+                "redirect_url": "http://localhost:8080/auth/pip/ctx/0/callback"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
