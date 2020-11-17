@@ -65,6 +65,12 @@ func NewTransmitter(issuer string) (*Transmitter, error) {
 	return &Transmitter{t.Issuer, t.ConfigurationEndpoint, t.StatusEndpoint, t.AddSubjectEndpoint}, nil
 }
 
+type Receiver struct {
+	ClintID    string
+	Host       string
+	StreamConf *CtxStreamConfig
+}
+
 // CtxStreamStatus は caep.EventStreamStatus を表す
 type CtxStreamStatus struct {
 	Status string `json:"status"`
@@ -78,7 +84,7 @@ type CtxStreamConfig struct {
 	Delivery struct {
 		DeliveryMethod string `json:"delivery_method"`
 		URL            string `json:"url"`
-	} `json:"delivery"`
+	} `json:"delivery,omitempty"`
 	EventsSupported []string `json:"events_supported"`
 	EventsRequested []string `json:"events_requested"`
 	EventsDelivered []string `json:"events_delivered"`

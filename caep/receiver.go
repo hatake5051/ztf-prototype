@@ -182,7 +182,7 @@ func (recv *recv) UpdateCtxStream(conf *CtxStreamConfig) (*CtxStreamConfig, erro
 	}
 	if resp.StatusCode != 200 {
 		dump, _ := httputil.DumpResponse(resp, true)
-		log.Printf("event stream config post failed, resp dump: %v\n", dump)
+		log.Printf("event stream config post failed, resp dump: %s\n", string(dump))
 		return nil, &cscerr{fmt.Errorf("config post failed statuscode: %d", resp.StatusCode), FailedToUpdateCtxStream}
 	}
 	defer resp.Body.Close()

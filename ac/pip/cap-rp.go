@@ -154,6 +154,9 @@ func (c *CAEPRecvConf) new(db umaClientDB, setCtx caep.SetCtx) (*caeprecv, error
 	}
 	caeprecv := &caeprecv{uma: umaCli}
 	recv, err := c.CAEPRecv.New(t, umaCli, setCtx)
+	if err != nil {
+		return nil, err
+	}
 	caeprecv.recv = recv
 	return caeprecv, nil
 }
