@@ -176,25 +176,38 @@ func (c *Oauth2ClientCred) to() *clientcredentials.Config {
 
 // UMAClientConf は CAP で UMAClint となるための設定情報
 type UMAClient struct {
-	// 認可サーバの名前
-	AuthZSrvName string `json:"authZ_srv"`
-	// Requesting Party のクレデンシャル情報
 	ReqPartyCredential struct {
-		Name string `json:"name"`
-		Pass string `json:"password"`
-	} `json:"rqp_credential"`
-	// 認可サーバアクセスのためのトークンを OAuth2.0 で
-	Oauth2Conf *Oauth2ResOwnerPass `json:"oauth2"`
+		Iss      string `json:"iss"`
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	} `json:"req_party_credential"`
+	ClientCredential struct {
+		AuthZ  string `json:"authZ"`
+		ID     string `json:"id"`
+		Secret string `json:"secret"`
+	} `json:"client_credential"`
 }
 
 func (c *UMAClient) to() *pip.UMAClientConf {
 	return &pip.UMAClientConf{
-		AuthZSrvName: c.AuthZSrvName,
 		ReqPartyCredential: struct {
-			Name string
-			Pass string
-		}{c.ReqPartyCredential.Name, c.ReqPartyCredential.Pass},
-		Oauth2Conf: c.Oauth2Conf.to(),
+			Issuer string
+			Name   string
+			Pass   string
+		}{
+			Issuer: c.ReqPartyCredential.Iss,
+			Name:   c.ReqPartyCredential.Name,
+			Pass:   c.ReqPartyCredential.Password,
+		},
+		ClientCredential: struct {
+			AuthzSrv string
+			ID       string
+			Secret   string
+		}{
+			AuthzSrv: c.ClientCredential.AuthZ,
+			ID:       c.ClientCredential.ID,
+			Secret:   c.ClientCredential.Secret,
+		},
 	}
 }
 
