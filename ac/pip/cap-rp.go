@@ -253,55 +253,77 @@ func (req reqCtxList) castToCAEPCtxList() []caep.Context {
 
 // UMAClientConf は CAP で UMAClint となるための設定情報
 type UMAClientConf struct {
-	// 認可サーバの名前
-	AuthZSrvName string
 	// Requesting Party のクレデンシャル情報
 	ReqPartyCredential struct {
-		Name string
-		Pass string
+		Issuer string
+		Name   string
+		Pass   string
 	}
-	// 認可サーバアクセスのためのトークンを OAuth2.0 で
-	Oauth2Conf *oauth2.Config
+	// 認可サーバに対するクライアントクレデンシャル情報
+	ClientCredential struct {
+		AuthzSrv string
+		ID       string
+		Secret   string
+	}
+}
+
+func (conf *UMAClientConf) new(db umaClientDB) (*umaClient, error) {
+	umaconf := uma.Conf{
+		AuthZSrv: conf.ClientCredential.AuthzSrv,
+		ClientCred: struct {
+			ID     string
+			Secret string
+		}{conf.ClientCredential.ID, conf.ClientCredential.Secret},
+	}
+	cli := umaconf.New()
+
+	op, err := oidc.NewProvider(context.Background(), conf.ReqPartyCredential.Issuer)
+	if err != nil {
+		return nil, err
+	}
+	rpConf := oauth2.Config{
+		ClientID:     conf.ClientCredential.ID,
+		ClientSecret: conf.ClientCredential.Secret,
+		Endpoint:     op.Endpoint(),
+		Scopes:       []string{oidc.ScopeOpenID},
+	}
+	rqpName := conf.ReqPartyCredential.Name
+	rqpPass := conf.ReqPartyCredential.Pass
+	tok, err := rpConf.PasswordCredentialsToken(context.Background(), rqpName, rqpPass)
+	if err != nil {
+		return nil, err
+	}
+	rawIDToken, ok := tok.Extra("id_token").(string)
+	if !ok {
+		return nil, fmt.Errorf("Requesting Party のIDTokenの抽出に失敗 アクセストークン: %v", tok)
+	}
+	if _, err := op.Verifier(&oidc.Config{ClientID: conf.ClientCredential.ID}).Verify(context.Background(), rawIDToken); err != nil {
+		return nil, fmt.Errorf("Requesting Party のIDTokenの検証に失敗 idt: %s", rawIDToken)
+	}
+	return &umaClient{rawIDToken, cli, db}, nil
 }
 
 type umaClientDB interface {
-	SetPermissionTicket(spagID string, ticket string) error
-	LoadPermissionTicket(sub *subForCtx) (string, error)
+	SetPermissionTicket(spagID string, ticket *uma.PermissionTicket) error
+	LoadPermissionTicket(sub *subForCtx) (*uma.PermissionTicket, error)
 	SetRPT(sub *subForCtx, tok *uma.RPT) error
 	LoadRPT(spagID string) (*uma.RPT, error)
 }
 
-func (conf *UMAClientConf) new(db umaClientDB) (*umaClient, error) {
-	rqpName := conf.ReqPartyCredential.Name
-	rqpPass := conf.ReqPartyCredential.Pass
-	tok, err := conf.Oauth2Conf.PasswordCredentialsToken(context.Background(), rqpName, rqpPass)
-	if err != nil {
-		return nil, err
-	}
-	authZSrv, err := uma.NewAuthZSrv(conf.AuthZSrvName)
-	if err != nil {
-		return nil, err
-	}
-	return &umaClient{tok, authZSrv, db}, nil
-}
-
 // umaClient は caep.Receiver が add subject するときの RPT を管理する
 type umaClient struct {
-	tok      *oauth2.Token
-	authZSrv *uma.AuthZSrv
-	db       umaClientDB
+	rawidt string
+	cli    uma.Client
+	db     umaClientDB
 }
 
 // ExtractPermissionTicket は uma Resource server からのレスポンスから PermissionTicket を抽出しサブジェクトと紐付ける
 func (u *umaClient) ExtractPermissionTicket(spagID string, resp *http.Response) error {
-	pt, err := uma.InitialPermissionTicket(resp)
+	pt, err := u.cli.ExtractPermissionTicket(resp)
 	if err != nil {
 		return err
 	}
-	if pt.InitialOption.AuthZSrv != u.authZSrv.Issuer {
-		return fmt.Errorf("sould be equeal Metadata Issuer: %v, resp: %v", u.authZSrv.Issuer, pt.InitialOption.AuthZSrv)
-	}
-	return u.db.SetPermissionTicket(spagID, pt.Ticket)
+	return u.db.SetPermissionTicket(spagID, pt)
 }
 
 // RPT はサブジェクトと紐づいた Requesting Party Token を取得する
@@ -315,33 +337,12 @@ func (u *umaClient) ReqRPT(sub *subForCtx) error {
 	if err != nil {
 		return err
 	}
-	tok, err := uma.ReqRPT(u.authZSrv.TokenURL, ticket, func(r *http.Request) {
-		u.tok.SetAuthHeader(r)
-	})
+	tok, err := u.cli.ReqRPT(ticket, u.rawidt)
 	if err != nil {
-		if err, ok := err.(uma.Error); ok {
+		if err, ok := err.(*uma.ReqRPTError); ok {
 			return newE(err, SubjectForCtxUnAuthorizeButReqSubmitted)
 		}
 		return err
 	}
 	return u.db.SetRPT(sub, tok)
 }
-
-// func contains(src []string, x string) bool {
-// 	for _, s := range src {
-// 		if s == x {
-// 			return true
-// 		}
-// 	}
-// 	return false
-// }
-
-// // forall a in x, a in src ;then true
-// func isSubSlice(src []string, x []string) bool {
-// 	for _, a := range x {
-// 		if !contains(src, a) {
-// 			return false
-// 		}
-// 	}
-// 	return true
-// }

@@ -1,13 +1,118 @@
 package uma
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"mime"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/clientcredentials"
 )
+
+// ClientConf はUMAクライアントの設定情報を表す
+type Conf struct {
+	AuthZSrv   string
+	ClientCred struct {
+		ID     string
+		Secret string
+	}
+}
+
+// New は設定情報をもとにUMAクライアントを構築する
+// 認可サーバの情報の取得に失敗するとパニック
+func (c *Conf) New() Client {
+	authZSrv, err := NewAuthZSrv(c.AuthZSrv)
+	if err != nil {
+		panic(fmt.Sprintf("uma.Client の構成に失敗(認可サーバの設定を取得できなかった) err: %v", err))
+	}
+
+	umaReqs := url.Values{}
+	umaReqs.Set("grant_type", "urn:ietf:params:oauth:grant-type:uma-ticket")
+	umaReqs.Set("ticket", "should-be-replaced")
+	umaReqs.Set("claim_token", "should-be-replaced")
+	umaReqs.Set("claim_token_format", "http://openid.net/specs/openid-connect-core-1_0.html#IDToken")
+	conf := clientcredentials.Config{
+		ClientID:       c.ClientCred.ID,
+		ClientSecret:   c.ClientCred.Secret,
+		TokenURL:       authZSrv.TokenURL,
+		EndpointParams: umaReqs,
+	}
+	return &cli{
+		authZ: authZSrv,
+		conf:  conf,
+	}
+}
+
+// Client はUMAクライアントを表す
+type Client interface {
+	ExtractPermissionTicket(resp *http.Response) (*PermissionTicket, error)
+	ReqRPT(pt *PermissionTicket, rawidToken string) (*RPT, error)
+}
+
+// ReqRPTError はRPT要求に失敗した時のエラーメッセージを表す
+type ReqRPTError struct {
+	Err            string `json:"error"`
+	ErrDescription string `json:"error_description"`
+	Ticket         string `json:"ticket"`
+}
+
+func (e *ReqRPTError) Error() string {
+	return e.Err + ":" + e.ErrDescription
+}
+
+type cli struct {
+	authZ *AuthZSrv
+	conf  clientcredentials.Config
+}
+
+func (c *cli) ExtractPermissionTicket(resp *http.Response) (*PermissionTicket, error) {
+	pt, err := InitialPermissionTicket(resp)
+	if err != nil {
+		return nil, err
+	}
+	if pt.InitialOption.AuthZSrv != c.authZ.Issuer {
+		return nil, fmt.Errorf("sould be equeal Metadata Issuer: %v, resp: %v", c.authZ.Issuer, pt.InitialOption.AuthZSrv)
+	}
+	return pt, nil
+}
+
+func (c *cli) Config(ticket, rawIDToken string) *clientcredentials.Config {
+	ret := c.conf
+	newparams := url.Values{}
+	for k, v := range ret.EndpointParams {
+		switch k {
+		case "ticket":
+			newparams.Set(k, ticket)
+		case "claim_token":
+			newparams.Set(k, rawIDToken)
+		default:
+			newparams[k] = v
+		}
+	}
+	ret.EndpointParams = newparams
+	return &ret
+}
+
+func (c *cli) ReqRPT(pt *PermissionTicket, rawidToken string) (*RPT, error) {
+	if pt.InitialOption != nil && c.authZ.Issuer != pt.InitialOption.AuthZSrv {
+		return nil, fmt.Errorf("この許可チケットの発行者に対するクライアントではない")
+	}
+	tok, err := c.Config(pt.Ticket, rawidToken).Token(context.Background())
+	if err != nil {
+		if err, ok := err.(*oauth2.RetrieveError); ok {
+			ee := new(ReqRPTError)
+			if err := json.Unmarshal(err.Body, ee); err != nil {
+				return nil, err
+			}
+			return nil, ee
+		}
+		return nil, err
+	}
+	return &RPT{*tok}, nil
+}
 
 // InitialPermissionTicket は resp から PermissionTicket を抽出する
 func InitialPermissionTicket(resp *http.Response) (*PermissionTicket, error) {
@@ -26,69 +131,5 @@ func InitialPermissionTicket(resp *http.Response) (*PermissionTicket, error) {
 		}
 		params[tmp[0]] = strings.ReplaceAll(tmp[1], "\"", "")
 	}
-	return &PermissionTicket{
-		Ticket: params["ticket"],
-		InitialOption: &struct {
-			AuthZSrv string
-			ResSrv   string
-		}{params["as_uri"], params["realms"]},
-	}, nil
-}
-
-// ReqRPT は PermissionTicket をもとに RPT を認可サーバに要求する
-// setAuthHeader は認可サーバのトークンエンドポイントにアクセスするための認可情報をリクエストに付与する
-func ReqRPT(tokenURL, ticket string, setAuthHeader func(r *http.Request)) (*RPT, error) {
-	body := url.Values{}
-	body.Set("grant_type", "urn:ietf:params:oauth:grant-type:uma-ticket")
-	body.Add("ticket", ticket)
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(body.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	setAuthHeader(req)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if err != nil {
-		return nil, err
-	}
-	if contentType != "application/json" {
-		return nil, fmt.Errorf("contentType(%v) is not matched with app/json", contentType)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		e := new(e)
-		if err := json.NewDecoder(resp.Body).Decode(e); err != nil {
-			return nil, err
-		}
-		return nil, e
-	} else {
-		t := new(RPT)
-		if err := json.NewDecoder(resp.Body).Decode(t); err != nil {
-			return nil, err
-		}
-		return t, nil
-	}
-}
-
-type Error interface {
-	error
-	Hint() string
-}
-
-type e struct {
-	Err            string `json:"error"`
-	ErrDescription string `json:"error_description"`
-	Ticket         string `json:"ticket,omitempty"`
-}
-
-func (e *e) Error() string {
-	return e.Err
-}
-
-func (e *e) Hint() string {
-	return e.ErrDescription
+	return NewPermissionTicket(params["ticket"], params["as_uri"], params["realms"]), nil
 }

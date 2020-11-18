@@ -162,15 +162,25 @@ func (db *umaClientDBimpl) keyRPT(spagID string) string {
 	return db.r.KeyPrefix() + ":" + db.keyModifier + ":rpt:" + spagID
 }
 
-func (db *umaClientDBimpl) SetPermissionTicket(spagID, ticket string) error {
-	return db.r.Save(db.keyPT(spagID), []byte(ticket))
+func (db *umaClientDBimpl) SetPermissionTicket(spagID string, ticket *uma.PermissionTicket) error {
+	buf := bytes.NewBuffer(nil)
+	if err := gob.NewEncoder(buf).Encode(ticket); err != nil {
+		return nil
+	}
+	return db.r.Save(db.keyPT(spagID), buf.Bytes())
 }
-func (db *umaClientDBimpl) LoadPermissionTicket(sub *subForCtx) (string, error) {
+
+func (db *umaClientDBimpl) LoadPermissionTicket(sub *subForCtx) (*uma.PermissionTicket, error) {
+	var pt uma.PermissionTicket
 	b, err := db.r.Load(db.keyPT(sub.SpagID))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(b), err
+	buf := bytes.NewBuffer(b)
+	if err := gob.NewDecoder(buf).Decode(&pt); err != nil {
+		return nil, err
+	}
+	return &pt, err
 
 }
 func (db *umaClientDBimpl) SetRPT(sub *subForCtx, tok *uma.RPT) error {

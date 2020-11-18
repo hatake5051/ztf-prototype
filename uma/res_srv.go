@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"mime"
 	"net/http"
+	"net/url"
+	"path"
 
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -24,16 +25,6 @@ type ResSrvConf struct {
 	}
 }
 
-// ResSrv は UMA-enabled なリソースサーバを表す
-type ResSrv interface {
-	// CRUD は method に基づいて res を Restful に操作する
-	CRUD(method string, res *Res) (*Res, error)
-	// List は owner が UMA AuthZSrv に登録したコンテキストを一覧する
-	List(owner string) (resIDList []string, err error)
-	// PermissionTicket は reses にアクセスを求めている情報をまとめて Permission Ticket に変換する
-	PermissionTicket(reses []ResReqForPT) (*PermissionTicket, error)
-}
-
 // New は設定情報から ResSrv を構成する
 // UMAAuthZSrv の設定に失敗するとパニック
 func (c *ResSrvConf) New() ResSrv {
@@ -47,18 +38,52 @@ func (c *ResSrvConf) New() ResSrv {
 		TokenURL:     authZSrv.TokenURL,
 	}
 	return &ressrv{
-		authZ: authZSrv,
-		conf:  clientcredConf}
+		authZ:   authZSrv,
+		patConf: clientcredConf}
 }
 
+// ResSrv は UMA-enabled なリソースサーバを表す
+type ResSrv interface {
+	// CRUD は method に基づいて res を Restful に操作する
+	CRUD(method string, res *Res) (*Res, error)
+	// List は owner が UMA AuthZSrv に登録したコンテキストを一覧する
+	List(owner string) (resIDList []string, err error)
+	// PermissionTicket は reses にアクセスを求めている情報をまとめて Permission Ticket に変換する
+	PermissionTicket(reses []ResReqForPT) (*PermissionTicket, error)
+}
+
+// ProtectionAPIError は ProtectionAPI で error response のメッセージを表す
+type ProtectionAPIError struct {
+	Code        string `json:"error"`
+	Description string `json:"error_description,omitempty"`
+	ErrorURI    string `json:"error_uri,omitempty"`
+}
+
+const (
+	// ProtectionAPICodeNotFound は参照されたリソースが存在していないことを表す
+	ProtectionAPICodeNotFound = "not_found"
+	// ProtectionAPICodeMethodNotAllowed はサポートしていなHTTPメソッドの要求がきたことを表す
+	ProtectionAPICodeMethodNotAllowed = "unsupported_method_type"
+	// ProtectionAPICodeBadRequest はリクストに必須パラメータがないことを表す
+	ProtectionAPICodeBadRequest = "invalid_request"
+	// ProtectionAPICodeInvalidResID は与えられた少なくとも一つのリソース識別子が見つからないことを表す
+	ProtectionAPICodeInvalidResID = "invalid_scope"
+	// ProtectionAPICodeInvalidScope は要求のスコープが対象リソースに事前に登録されていないことを表す
+	ProtectionAPICodeInvalidScope = "invalid_scope"
+)
+
+func (e *ProtectionAPIError) Error() string {
+	return e.Code + ":" + e.Description
+}
+
+// ResSrv の実装
 type ressrv struct {
-	host  string
-	authZ *AuthZSrv
-	conf  *clientcredentials.Config
+	host    string
+	authZ   *AuthZSrv
+	patConf *clientcredentials.Config
 }
 
 func (u *ressrv) PermissionTicket(reses []ResReqForPT) (*PermissionTicket, error) {
-	client := u.conf.Client(context.Background())
 	body, err := json.Marshal(reses)
 	if err != nil {
 		return nil, err
@@ -68,13 +93,21 @@ func (u *ressrv) PermissionTicket(reses []ResReqForPT) (*PermissionTicket, error
 		return nil, err
 	}
 	req.Header.Add("Content-Type", "application/json")
+	client := u.patConf.Client(context.Background())
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusBadRequest {
+		ee := new(ProtectionAPIError)
+		if err := json.NewDecoder(resp.Body).Decode(ee); err != nil {
+			return nil, err
+		}
+		return nil, ee
+	}
 	if resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("permission から %s", resp.Status)
+		return nil, fmt.Errorf("unexpected status code %s", resp.Status)
 	}
 	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
@@ -90,19 +123,17 @@ func (u *ressrv) PermissionTicket(reses []ResReqForPT) (*PermissionTicket, error
 	if err := json.NewDecoder(resp.Body).Decode(tt); err != nil {
 		return nil, err
 	}
-	return &PermissionTicket{
-		Ticket: tt.Ticket,
-		InitialOption: &struct {
-			AuthZSrv string
-			ResSrv   string
-		}{u.authZ.Issuer, u.host},
-	}, nil
-
+	return NewPermissionTicket(tt.Ticket, u.authZ.Issuer, u.host), nil
 }
 
 func (u *ressrv) List(owner string) (resIDList []string, err error) {
-	client := u.conf.Client(context.Background())
-	resp, err := client.Get(u.authZ.RRegURL + "?owner=" + owner)
+	url, err := url.Parse(u.authZ.RRegURL)
+	if err != nil {
+		return nil, err
+	}
+	url.Query().Add("owner", owner)
+	client := u.patConf.Client(context.Background())
+	resp, err := client.Get(url.String())
 	if err != nil {
 		return nil, err
 	}
@@ -125,45 +156,57 @@ func (u *ressrv) List(owner string) (resIDList []string, err error) {
 }
 
 func (u *ressrv) CRUD(method string, res *Res) (*Res, error) {
-	client := u.conf.Client(context.Background())
-
-	if method == "POST" {
+	// HTTP Request の作成
+	if method == http.MethodPost {
 		res.OwnerManagedAccess = true
 	}
 	body, err := json.Marshal(res)
 	if err != nil {
 		return nil, err
 	}
-	url := u.authZ.RRegURL
-	if method != "POST" {
-		url += "/" + res.ID
+	url, err := url.Parse(u.authZ.RRegURL)
+	if err != nil {
+		return nil, err
 	}
-	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+	if method != http.MethodPost {
+		url.Path = path.Join(url.Path, res.ID)
+	}
+	req, err := http.NewRequest(method, url.String(), bytes.NewBuffer(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Add("Content-Type", "application/json")
+	// HTTP Request を送信する
+	client := u.patConf.Client(context.Background())
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if method == "DELETE" {
-		if resp.StatusCode != http.StatusNoContent {
-			return nil, fmt.Errorf("%s: %s", method, resp.Status)
+	// UMA のエラーレスポンスかチェック
+	if resp.StatusCode == http.StatusNotFound ||
+		resp.StatusCode == http.StatusMethodNotAllowed ||
+		resp.StatusCode == http.StatusBadRequest {
+		ee := new(ProtectionAPIError)
+		if err := json.NewDecoder(resp.Body).Decode(ee); err != nil {
+			return nil, err
 		}
-		return nil, nil
+		return nil, ee
 	}
-
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read response body: %v", err)
+	// UMA エラーレスポンスではないが、成功レスポンスコードでない
+	isFailed := false
+	switch method {
+	case http.MethodDelete:
+		isFailed = resp.StatusCode != http.StatusNoContent
+	case http.MethodPost:
+		isFailed = resp.StatusCode != http.StatusCreated
+	default:
+		isFailed = resp.StatusCode != http.StatusOK
 	}
-	if method == "POST" && resp.StatusCode != http.StatusCreated {
+	if isFailed {
 		return nil, fmt.Errorf("%s: %s", method, resp.Status)
-	} else if method != "POST" && resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", method, resp.Status)
 	}
+	// UMA 成功レスポンスなのでパースしてみる
 	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
 		return nil, err
@@ -172,13 +215,15 @@ func (u *ressrv) CRUD(method string, res *Res) (*Res, error) {
 		return nil, fmt.Errorf("content-type unmatched, expected: application/json but %s", contentType)
 	}
 	type id struct {
-		ID string `json:"_id"`
+		ID                  string `json:"_id"`
+		UserAccessPolicyURI string `json:"user_access_policy_uri,omitempty"`
 	}
 	i := new(id)
-	if err := json.Unmarshal(body, i); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(i); err != nil {
 		return nil, err
 	}
 	res.ID = i.ID
+	res.UserAccessPolicyURI = i.UserAccessPolicyURI
 	return res, nil
 
 }

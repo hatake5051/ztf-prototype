@@ -5,18 +5,20 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
-	"strings"
+	"net/url"
+	"path"
 
 	"golang.org/x/oauth2"
 )
 
-// Res は
+// Res は認可サーバが保護するリソースサーバ上のリソースを表す
 type Res struct {
-	ID                 string   `json:"_id,omitempty"`
-	Name               string   `json:"name,omitempty"`
-	Owner              string   `json:"owner,omitempty"`
-	OwnerManagedAccess bool     `json:"ownerManagedAccess,omitempty"`
-	Scopes             []string `json:"scopes,omitempty"`
+	ID                  string   `json:"-"`
+	UserAccessPolicyURI string   `json:"-"`
+	Name                string   `json:"name,omitempty"`
+	Owner               string   `json:"owner,omitempty"`
+	OwnerManagedAccess  bool     `json:"ownerManagedAccess,omitempty"`
+	Scopes              []string `json:"scopes,omitempty"`
 }
 
 // ResReqForPT は
@@ -34,6 +36,17 @@ type PermissionTicket struct {
 	InitialOption *struct {
 		AuthZSrv string
 		ResSrv   string
+	}
+}
+
+// NewPermissionTicket は許可チケットを構築する
+func NewPermissionTicket(ticket, authZSrv, resSrv string) *PermissionTicket {
+	return &PermissionTicket{
+		Ticket: ticket,
+		InitialOption: &struct {
+			AuthZSrv string
+			ResSrv   string
+		}{authZSrv, resSrv},
 	}
 }
 
@@ -65,8 +78,12 @@ type umaJSON struct {
 
 // NewAuthZSrv は issuer の well-known エンドポイントにアクセスして認可サーバの情報を取得する
 func NewAuthZSrv(issuer string) (*AuthZSrv, error) {
-	wellKnown := strings.TrimSuffix(issuer, "/") + "/.well-known/uma2-configuration"
-	resp, err := http.Get(wellKnown)
+	ur, err := url.Parse(issuer)
+	if err != nil {
+		return nil, err
+	}
+	ur.Path = path.Join(ur.Path, "/.well-known/uma2-configuration")
+	resp, err := http.Get(ur.String())
 	if err != nil {
 		return nil, err
 	}
