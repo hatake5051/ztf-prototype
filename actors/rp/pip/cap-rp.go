@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/hatake5051/ztf-prototype/ac"
+	acpip "github.com/hatake5051/ztf-prototype/ac/pip"
 	"github.com/hatake5051/ztf-prototype/caep"
 	ztfopenid "github.com/hatake5051/ztf-prototype/openid"
 	"github.com/hatake5051/ztf-prototype/uma"
@@ -73,7 +74,7 @@ func (cm *caprp) Get(session string, req []reqCtx) ([]ctx, error) {
 	ctxs, err := cm.db.Load(sub, req)
 	if err != nil {
 		// まだctx が届いてないかもしれない
-		return nil, newE(err, CtxsNotFound)
+		return nil, newE(err, acpip.CtxsNotFound)
 	}
 	return ctxs, nil
 }
@@ -115,7 +116,7 @@ func (a *authNForCAEPRecv) GetSub(session string) (*subForCtx, error) {
 	sub, err := a.sm.Load(session)
 	if err != nil {
 		// 認証できてないことをエラーとして表現
-		return nil, newEO(err, SubjectForCtxUnAuthenticated, a.capName)
+		return nil, newEO(err, acpip.SubjectForCtxUnAuthenticated, a.capName)
 	}
 	return sub, nil
 }
@@ -363,7 +364,7 @@ func (u *umaClient) ReqRPT(sub *subForCtx) error {
 	tok, err := u.cli.ReqRPT(ticket, u.rawidt)
 	if err != nil {
 		if err, ok := err.(*uma.ReqRPTError); ok {
-			return newE(err, SubjectForCtxUnAuthorizeButReqSubmitted)
+			return newE(err, acpip.SubjectForCtxUnAuthorizeButReqSubmitted)
 		}
 		return err
 	}

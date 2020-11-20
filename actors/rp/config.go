@@ -1,10 +1,10 @@
-package config
+package rp
 
 import (
 	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/ac/controller"
 	"github.com/hatake5051/ztf-prototype/ac/pdp"
-	"github.com/hatake5051/ztf-prototype/ac/pip"
+	"github.com/hatake5051/ztf-prototype/actors/rp/pip"
 	"github.com/hatake5051/ztf-prototype/caep"
 	"github.com/hatake5051/ztf-prototype/openid"
 	"golang.org/x/oauth2"

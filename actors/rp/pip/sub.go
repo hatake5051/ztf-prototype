@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/hatake5051/ztf-prototype/ac"
+	acpip "github.com/hatake5051/ztf-prototype/ac/pip"
 	ztfopenid "github.com/hatake5051/ztf-prototype/openid"
 	"github.com/lestrrat-go/jwx/jwt/openid"
 )
@@ -72,13 +73,13 @@ func (pip *subPIP) Get(session string) (*subject, error) {
 	subID, err := pip.sm.Load(session)
 	if err != nil {
 		// なければ subject が誰か識別できておらず、セッションをはれていない
-		return nil, newE(err, SubjectUnAuthenticated)
+		return nil, newE(err, acpip.SubjectUnAuthenticated)
 	}
 	// subject.identifier をもとに subject の値をDBから取得
 	sub, err := pip.db.Load(subID)
 	if err != nil {
 		// 見つからなければ、認証からやり直す
-		return nil, newE(err, SubjectUnAuthenticated)
+		return nil, newE(err, acpip.SubjectUnAuthenticated)
 	}
 	return sub, nil
 }

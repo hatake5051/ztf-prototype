@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/hatake5051/ztf-prototype/ac"
-	"github.com/hatake5051/ztf-prototype/ac/config"
 	"github.com/hatake5051/ztf-prototype/ac/controller"
 	"github.com/hatake5051/ztf-prototype/actors/rp"
 )
@@ -17,7 +16,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	var conf config.Conf
+	var conf rp.Conf
 	if err := json.Unmarshal(raw, &conf); err != nil {
 		panic(err)
 	}
