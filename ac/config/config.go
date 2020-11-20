@@ -154,9 +154,9 @@ type CAEPRecv struct {
 
 func (c *CAEPRecv) to() *caep.RecvConf {
 	return &caep.RecvConf{
-		Host:            c.Host,
-		RecvCtxEndpoint: c.Endpoint,
-		Issuer:          c.Iss,
+		Host:         c.Host,
+		RecvEndpoint: c.Endpoint,
+		Issuer:       c.Iss,
 	}
 }
 

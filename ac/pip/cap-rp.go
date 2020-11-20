@@ -78,13 +78,13 @@ func (cm *caprp) Get(session string, req []reqCtx) ([]ctx, error) {
 func (cm *caprp) Agent() (ac.CtxAgent, error) {
 	return &ctxagent{
 		cm.sm.Agent(),
-		cm.recv.recv.Recv,
+		cm.recv.Recv,
 	}, nil
 }
 
-func (cm *caprp) setCtx(spagID string, c *caep.Context) error {
+func (cm *caprp) setCtx(spagID string, c *ctx) error {
 	print("caeprecv spagid:%s context:%v  ", spagID, c)
-	return cm.db.Set(spagID, fromCAEPCtx(c))
+	return cm.db.Set(spagID, c)
 }
 
 // AuthNForCAEPRecvConf は CAEP の Receriver でサブジェクト認証を管理するための設定情報
@@ -134,6 +134,10 @@ func (a *authNForCAEPRecv) setSub(session string, token *oidc.IDToken) error {
 	return nil
 }
 
+func (sub *subForCtx) toCAEP() string {
+	return sub.SpagID
+}
+
 // CAEPRecvConf は CAEP の Receiver となるための設定情報
 type CAEPRecvConf struct {
 	CAEPRecv *caep.RecvConf
@@ -143,7 +147,7 @@ type CAEPRecvConf struct {
 	UMAConf *UMAClientConf
 }
 
-func (c *CAEPRecvConf) new(db umaClientDB, setCtx caep.SetCtx) (*caeprecv, error) {
+func (c *CAEPRecvConf) new(db umaClientDB, setCtx func(spagID string, c *ctx) error) (*caeprecv, error) {
 	umaCli, err := c.UMAConf.new(db)
 	if err != nil {
 		return nil, err
@@ -152,44 +156,45 @@ func (c *CAEPRecvConf) new(db umaClientDB, setCtx caep.SetCtx) (*caeprecv, error
 	if err != nil {
 		return nil, err
 	}
-	caeprecv := &caeprecv{uma: umaCli}
-	recv, err := c.CAEPRecv.New(t, umaCli, setCtx)
+	a := &setAuthHeaders{umaCli, t}
+	recv := c.CAEPRecv.New(a)
+	return &caeprecv{recv, setCtx, umaCli}, nil
+}
+
+type setAuthHeaders struct {
+	uma *umaClient
+	t   *oauth2.Token
+}
+
+func (s *setAuthHeaders) ForConfig(r *http.Request) {
+	s.t.SetAuthHeader(r)
+}
+
+func (s *setAuthHeaders) ForSubAdd(spagID string, r *http.Request) {
+	rpt, err := s.uma.RPT(spagID)
 	if err != nil {
-		return nil, err
+		return
 	}
-	caeprecv.recv = recv
-	return caeprecv, nil
+	rpt.SetAuthHeader(r)
 }
 
 type caeprecv struct {
-	recv caep.Recv
-	uma  *umaClient
+	recv   caep.Recv
+	setCtx func(spagID string, c *ctx) error
+	uma    *umaClient
 }
 
 // stream の config が req を満たしているかチェック
 // 満たしているとは req に含まれる ctx.ID が全て config.EventRequested に含まれているか
 func (cm *caeprecv) SetupStream(req []reqCtx) error {
-	// 最新の StreamConf を読む
-	conf, err := cm.recv.ReadCtxStream()
-	if err != nil {
-		// err 内容が Access Token がないときは
-		if err, ok := err.(caep.RecvError); ok && err.Code() == caep.NoOAuthTokenForConfigStream {
-			// get AccessToken をするが、今回は client credential でやってるので init 事に持ってるはず
-			return err
-		}
-		// conf をまだ設定していないものとする
-		conf = cm.recv.DefaultCtxStreamConfig()
-	}
 	var reqCtxID []string
 	for _, c := range req {
 		reqCtxID = append(reqCtxID, c.ID)
 	}
-	if ismodified := conf.UpdateCtxsRequested(reqCtxID); !ismodified {
-		return nil
+	newConf := &caep.StreamConfig{
+		EventsRequested: reqCtxID,
 	}
-	// conf を更新する
-	conf, err = cm.recv.UpdateCtxStream(conf)
-	if err != nil {
+	if err := cm.recv.SetUpStream(newConf); err != nil {
 		// 更新に失敗したら、終わり
 		return err
 	}
@@ -198,7 +203,7 @@ func (cm *caeprecv) SetupStream(req []reqCtx) error {
 
 func (cm *caeprecv) IsEnabledStatusFor(sub *subForCtx) error {
 	// subject の stream での status を得る
-	status, err := cm.recv.ReadCtxStreamStatus(sub.toCAEP())
+	status, err := cm.recv.ReadStreamStatus(sub.toCAEP())
 	// status が得られなかった、もしくは status.Status が有効でないとき
 	if err != nil {
 		return err
@@ -210,45 +215,53 @@ func (cm *caeprecv) IsEnabledStatusFor(sub *subForCtx) error {
 }
 
 func (cm *caeprecv) AddSub(sub *subForCtx, req []reqCtx) error {
-	reqctxForCAEP := (reqCtxList(req)).castToCAEPCtxList()
-	err := cm.recv.AddSubject(sub.toCAEP(), reqctxForCAEP)
+	reqscopes := make(map[string][]string)
+	for _, r := range req {
+		reqscopes[r.ID] = r.Scopes
+	}
+	reqadd := &caep.ReqAddSub{
+		Sub: struct {
+			SubType string "json:\"subject_type\""
+			SpagID  string "json:\"spag_id\""
+		}{"spag", sub.toCAEP()},
+		ReqEventScopes: reqscopes,
+	}
+	err := cm.recv.AddSubject(reqadd)
 	if err == nil {
-		// 追加に成功
 		return nil
 	}
 	e, ok := err.(caep.RecvError)
 	if !ok {
-		// ここでは、対処しないエラー
 		return err
 	}
-	// PermissionTicket が発行されたら
-	if e.Code() == caep.UMAUnAuthorizedWithPermissionTicket {
-		// RPT 要求を行う
+	if e.Code() == caep.RecvErrorCodeUnAuthorized {
+		resp := e.Option().(*http.Response)
+		if err := cm.uma.ExtractPermissionTicket(sub.toCAEP(), resp); err != nil {
+			return err
+		}
 		if err := cm.uma.ReqRPT(sub); err != nil {
 			return err
 		}
-		// RPT 要求に成功すると、もう一度 AddSubjectを行う
-		return cm.recv.AddSubject(sub.SpagID, reqctxForCAEP)
+		return cm.recv.AddSubject(reqadd)
 	}
-	return nil
+	if e.Code() == caep.RecvErrorCodeNotFound {
+		// todo どうしようもないえらー
+		return e
+	}
+	return e
 }
 
-func (sub *subForCtx) toCAEP() string {
-	return sub.SpagID
-}
-
-// reqCtxList は []reqCtx を []caep.Context に変換するためのメソッドを持つ
-type reqCtxList []reqCtx
-
-func (req reqCtxList) castToCAEPCtxList() []caep.Context {
-	var caepctxs []caep.Context
-	for _, c := range req {
-		caepctxs = append(caepctxs, caep.Context{
-			ID:     c.ID,
-			Scopes: c.Scopes,
-		})
+func (cm *caeprecv) Recv(r *http.Request) error {
+	event, err := cm.recv.Recv(r)
+	if err != nil {
+		return err
 	}
-	return caepctxs
+	spagID := event.Subject.SpagID
+	c := &ctx{
+		ID:          event.ID,
+		ScopeValues: event.Property,
+	}
+	return cm.setCtx(spagID, c)
 }
 
 // UMAClientConf は CAP で UMAClint となるための設定情報

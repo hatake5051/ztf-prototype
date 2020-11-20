@@ -15,8 +15,8 @@
     },
     "ctx": {
       "ctx_to_cap": {
-        "ctx1": "http://localhost:9090",
-        "ctx2": "http://localhost:9090"
+        "ctx-1": "http://localhost:9090",
+        "ctx-2": "http://localhost:9090"
       },
       "cap_to_rp": {
         "http://localhost:9090": {

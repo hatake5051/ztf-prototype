@@ -18,8 +18,8 @@ type pdp struct{}
 func (pdp *pdp) NotifiedOfRequest(s ac.Subject, r ac.Resource, a ac.Action) (reqctxs []ac.ReqContext, deny bool) {
 	fmt.Println("pdp.NotifiedRequest start...")
 	fmt.Printf("sub(%s) wants to do action(%s) on res(%s) without context\n", s.ID(), a.ID(), r.ID())
-	req1 := &reqctx{"ctx1", []string{"scope1", "scope2"}}
-	req2 := &reqctx{"ctx2", []string{"scope111", "scope2"}}
+	req1 := &reqctx{"ctx-1", []string{"scope1", "scope2"}}
+	req2 := &reqctx{"ctx-2", []string{"scope111", "scope2"}}
 	return []ac.ReqContext{req1.toACReq(), req2.toACReq()}, false
 }
 

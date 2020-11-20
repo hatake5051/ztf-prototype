@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/hatake5051/ztf-prototype/ac"
-	"github.com/hatake5051/ztf-prototype/caep"
 )
 
 // ctx は ac.Context implementation
@@ -16,13 +15,6 @@ type ctx struct {
 // ToAC は pip.ctx を ac.Context interface に適応させる
 func (c *ctx) ToAC() ac.Context {
 	return &wrapC{c}
-}
-
-func fromCAEPCtx(c *caep.Context) *ctx {
-	return &ctx{
-		ID:          c.ID,
-		ScopeValues: c.ScopeValues,
-	}
 }
 
 // reqCtx は PDP が要求するコンテキストの名前とそのスコープを表す

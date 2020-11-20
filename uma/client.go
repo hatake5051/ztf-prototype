@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 
@@ -119,9 +120,11 @@ func InitialPermissionTicket(resp *http.Response) (*PermissionTicket, error) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		return nil, fmt.Errorf("status code unmatched: expected 403 but %v", resp.StatusCode)
 	}
+	dump, _ := httputil.DumpResponse(resp, true)
+	fmt.Printf("init pt %s\n", dump)
 	wwwAuthn := resp.Header.Get("WWW-Authenticate")
 	if !strings.HasPrefix(wwwAuthn, "UMA") {
-		return nil, fmt.Errorf("WWW-Authenticated Header should start with UMA")
+		return nil, fmt.Errorf("WWW-Authenticated Header should start with UMA. %s", wwwAuthn)
 	}
 	params := make(map[string]string)
 	for _, s := range strings.Split(wwwAuthn[3:], ",") {
