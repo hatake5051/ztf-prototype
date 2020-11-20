@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/coreos/go-oidc"
 	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/caep"
+	ztfopenid "github.com/hatake5051/ztf-prototype/openid"
 	"github.com/hatake5051/ztf-prototype/uma"
+	"github.com/lestrrat-go/jwx/jwk"
+	"github.com/lestrrat-go/jwx/jwt"
+	"github.com/lestrrat-go/jwx/jwt/openid"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -90,7 +93,7 @@ func (cm *caprp) setCtx(spagID string, c *ctx) error {
 // AuthNForCAEPRecvConf は CAEP の Receriver でサブジェクト認証を管理するための設定情報
 type AuthNForCAEPRecvConf struct {
 	CAPName string
-	OIDCRP  *OIDCRPConf
+	OIDCRP  *ztfopenid.Conf
 }
 
 func (c *AuthNForCAEPRecvConf) new(sm smForCtxManager) *authNForCAEPRecv {
@@ -102,7 +105,7 @@ func (c *AuthNForCAEPRecvConf) new(sm smForCtxManager) *authNForCAEPRecv {
 type authNForCAEPRecv struct {
 	capName    string
 	sm         smForCtxManager
-	oidcrpConf *OIDCRPConf
+	oidcrpConf *ztfopenid.Conf
 }
 
 // GetSub は session に紐づくサブジェクトがいればそれを返す。
@@ -118,16 +121,16 @@ func (a *authNForCAEPRecv) GetSub(session string) (*subForCtx, error) {
 }
 
 func (a *authNForCAEPRecv) Agent() *authnagent {
-	oidcrp := a.oidcrpConf.new()
+	oidcrp := a.oidcrpConf.New()
 	return &authnagent{
-		oidcrp:     oidcrp,
-		setSubject: a.setSub,
+		oidcrp,
+		a.setSub,
 	}
 }
 
 // setSub はOIDC 認証フローで獲得できた IDToken をセッションに保存する
-func (a *authNForCAEPRecv) setSub(session string, token *oidc.IDToken) error {
-	sub := &subForCtx{token.Subject}
+func (a *authNForCAEPRecv) setSub(session string, token openid.Token) error {
+	sub := &subForCtx{token.Subject()}
 	if err := a.sm.Set(session, sub); err != nil {
 		return err
 	}
@@ -290,15 +293,18 @@ func (conf *UMAClientConf) new(db umaClientDB) (*umaClient, error) {
 	}
 	cli := umaconf.New()
 
-	op, err := oidc.NewProvider(context.Background(), conf.ReqPartyCredential.Issuer)
+	op, err := ztfopenid.NewOPFetched(conf.ReqPartyCredential.Issuer)
 	if err != nil {
 		return nil, err
 	}
 	rpConf := oauth2.Config{
 		ClientID:     conf.ClientCredential.ID,
 		ClientSecret: conf.ClientCredential.Secret,
-		Endpoint:     op.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID},
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  op.AuthorizationEndpoint,
+			TokenURL: op.TokenEndpoint,
+		},
+		Scopes: []string{"openid"},
 	}
 	rqpName := conf.ReqPartyCredential.Name
 	rqpPass := conf.ReqPartyCredential.Pass
@@ -310,8 +316,12 @@ func (conf *UMAClientConf) new(db umaClientDB) (*umaClient, error) {
 	if !ok {
 		return nil, fmt.Errorf("Requesting Party のIDTokenの抽出に失敗 アクセストークン: %v", tok)
 	}
-	if _, err := op.Verifier(&oidc.Config{ClientID: conf.ClientCredential.ID}).Verify(context.Background(), rawIDToken); err != nil {
-		return nil, fmt.Errorf("Requesting Party のIDTokenの検証に失敗 idt: %s", rawIDToken)
+	jwkset, err := jwk.FetchHTTP(op.JwksURI)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = jwt.ParseString(rawIDToken, jwt.WithKeySet(jwkset), jwt.WithOpenIDClaims()); err != nil {
+		return nil, err
 	}
 	return &umaClient{rawIDToken, cli, db}, nil
 }

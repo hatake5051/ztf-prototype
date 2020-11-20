@@ -6,6 +6,7 @@ import (
 	"github.com/hatake5051/ztf-prototype/ac/pdp"
 	"github.com/hatake5051/ztf-prototype/ac/pip"
 	"github.com/hatake5051/ztf-prototype/caep"
+	"github.com/hatake5051/ztf-prototype/openid"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -55,7 +56,7 @@ type SubPIP struct {
 }
 
 func (c *SubPIP) to() *pip.SubPIPConf {
-	tmp := make(map[string]*pip.OIDCRPConf)
+	tmp := make(map[string]*openid.Conf)
 	for k, v := range c.RPConfig {
 		tmp[k] = v.to()
 	}
@@ -72,8 +73,8 @@ type OIDCRP struct {
 	RedirectURL  string `json:"redirect_url"`
 }
 
-func (c *OIDCRP) to() *pip.OIDCRPConf {
-	return &pip.OIDCRPConf{
+func (c *OIDCRP) to() *openid.Conf {
+	return &openid.Conf{
 		Issuer:       c.Iss,
 		ClientID:     c.ClientID,
 		ClientSecret: c.ClientSecret,

@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/coreos/go-oidc"
 	"github.com/hatake5051/ztf-prototype/ac"
+	ztfopenid "github.com/hatake5051/ztf-prototype/openid"
+	"github.com/lestrrat-go/jwx/jwt/openid"
 )
 
 // subject は ac.Subject の実体
 type subject struct {
-	ID      *subIdentifier
-	IDToken *oidc.IDToken
+	ID *subIdentifier
 }
 
 func (sub *subject) ToACSub() ac.Subject {
@@ -25,8 +25,8 @@ type subIdentifier struct {
 }
 
 // newSubID は oidc.IDToken を subIdnetifier に変換する
-func newSubID(idt *oidc.IDToken) *subIdentifier {
-	return &subIdentifier{idt.Issuer, idt.Subject}
+func newSubID(idt openid.Token) *subIdentifier {
+	return &subIdentifier{idt.Issuer(), idt.Subject()}
 }
 
 // SubPIPConf は subPIP の設定情報
@@ -34,13 +34,13 @@ type SubPIPConf struct {
 	// IssuerList は認証サーバとして利用可能な OP のリスト
 	IssuerList []string `json:"iss_list"`
 	// RPConfMap は Issuer ごとの RP 設定情報
-	RPConf map[string]*OIDCRPConf `json:"rp_config"`
+	RPConf map[string]*ztfopenid.Conf `json:"rp_config"`
 }
 
 func (conf *SubPIPConf) new(sm smForSubPIP, db subDB) *subPIP {
 	pip := &subPIP{sm: sm, db: db}
 	for issuer, rpconf := range conf.RPConf {
-		rp := rpconf.new()
+		rp := rpconf.New()
 		pip.rps.Store(issuer, &authnagent{rp, pip.set})
 	}
 
@@ -63,7 +63,7 @@ type smForSubPIP interface {
 // subDB は 異なる OIDCRP 情報を保存し、 subject を保存する
 type subDB interface {
 	Load(key *subIdentifier) (*subject, error)
-	Set(*oidc.IDToken) error
+	Set(openid.Token) error
 }
 
 // get は PIP から subject を取得する
@@ -93,7 +93,7 @@ func (pip *subPIP) Agent(issuer string) (ac.AuthNAgent, error) {
 }
 
 // set は AuthNAgent が取得した oidc.IDToken を PIP に保存する
-func (pip *subPIP) set(session string, sub *oidc.IDToken) error {
+func (pip *subPIP) set(session string, sub openid.Token) error {
 	subID := newSubID(sub)
 	if err := pip.sm.Set(session, subID); err != nil {
 		return err

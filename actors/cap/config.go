@@ -2,6 +2,7 @@ package cap
 
 import (
 	"github.com/hatake5051/ztf-prototype/caep"
+	"github.com/hatake5051/ztf-prototype/openid"
 	"github.com/hatake5051/ztf-prototype/uma"
 )
 
@@ -13,6 +14,7 @@ type Conf struct {
 
 type CAPConf struct {
 	Contexts map[string][]string `json:"contexts"`
+	Openid   *Openid             `json:"openid"`
 }
 type UMAConf struct {
 	AuthZ        string `json:"authZ"`
@@ -43,9 +45,19 @@ type Metadata struct {
 }
 
 type Openid struct {
-	Issuer   string `json:"issuer"`
-	RpID     string `json:"rp_id"`
-	RpSecret string `json:"rp_secret"`
+	Issuer      string `json:"issuer"`
+	RpID        string `json:"rp_id"`
+	RpSecret    string `json:"rp_secret"`
+	RedirectURL string `json:"redirect_url"`
+}
+
+func (c *Openid) to() *openid.Conf {
+	return &openid.Conf{
+		Issuer:       c.Issuer,
+		ClientID:     c.RpID,
+		ClientSecret: c.RpSecret,
+		RedirectURL:  c.RedirectURL,
+	}
 }
 
 type CAEPConf struct {

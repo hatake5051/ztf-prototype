@@ -5,9 +5,9 @@ import (
 	"encoding/gob"
 	"fmt"
 
-	"github.com/coreos/go-oidc"
 	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/uma"
+	"github.com/lestrrat-go/jwx/jwt/openid"
 )
 
 type smForSubPIPimpl struct {
@@ -66,9 +66,9 @@ func (db *subDBimple) Load(key *subIdentifier) (*subject, error) {
 	return &sub, nil
 }
 
-func (db *subDBimple) Set(idt *oidc.IDToken) error {
+func (db *subDBimple) Set(idt openid.Token) error {
 	subID := newSubID(idt)
-	sub := &subject{subID, idt}
+	sub := &subject{subID}
 	buf := bytes.NewBuffer(nil)
 	if err := gob.NewEncoder(buf).Encode(sub); err != nil {
 		return nil

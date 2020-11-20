@@ -9,6 +9,12 @@
         "scope111",
         "scope2"
       ]
+    },
+    "openid": {
+      "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
+      "rp_id": "cap1",
+      "rp_secret": "66be9519-4ec8-42dc-ab07-3e7caad187fc",
+      "redirect_url": "http://localhost:9090/oidc/callback"
     }
   },
   "uma": {

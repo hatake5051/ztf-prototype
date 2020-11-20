@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/hatake5051/ztf-prototype/caep"
+	"github.com/hatake5051/ztf-prototype/openid"
 	"github.com/hatake5051/ztf-prototype/uma"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
@@ -34,7 +35,7 @@ func (c *Conf) New() *mux.Router {
 	cap := &cap{
 		ctxs:  c.CAP.Contexts,
 		store: sessions.NewCookieStore([]byte("super-secret-key")),
-		rp:    NewOIDCRP(c.CAEP.Openid.Issuer, c.CAEP.Openid.RpID, c.CAEP.Openid.RpSecret, "http://localhost:9090/oidc/callback"),
+		rp:    c.CAP.Openid.to().New(),
 		uma:   u,
 		db:    db,
 	}
@@ -252,7 +253,7 @@ func (e *tre) Option() interface{} {
 type cap struct {
 	ctxs  map[string][]string
 	store *sessions.CookieStore
-	rp    OIDCRP
+	rp    openid.RP
 	db    recvsDB
 	uma   uma.ResSrv
 }
@@ -388,14 +389,8 @@ func (c *cap) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("%#v\n", idToken)
-	session.Values["subject"] = idToken.Subject
-	var claims struct {
-		Name string `json:"preferred_username"`
-	}
-	if err := idToken.Claims(&claims); err != nil {
-		session.Values["name"] = idToken.Subject
-	}
-	session.Values["name"] = claims.Name
+	session.Values["subject"] = idToken.Subject()
+	session.Values["name"] = idToken.PreferredUsername()
 	if err := session.Save(r, w); err != nil {
 		log.Printf("error %#v\n", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
