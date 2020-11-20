@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"log"
 	"net/http"
 
@@ -8,13 +10,15 @@ import (
 )
 
 func main() {
-	c := cap.Conf{
-		Issuer:       "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
-		OIDCRPID:     "cap1",
-		OIDCRPSecret: "66be9519-4ec8-42dc-ab07-3e7caad187fc",
-		Host:         "http://localhost:9090",
+	raw, err := ioutil.ReadFile("./conf.json")
+	if err != nil {
+		panic(err)
 	}
-	r := c.New()
+	var conf cap.Conf
+	if err := json.Unmarshal(raw, &conf); err != nil {
+		panic(err)
+	}
+	r := conf.New()
 	http.Handle("/", r)
 	if err := http.ListenAndServe(":9090", r); err != nil {
 		log.Fatal(err)

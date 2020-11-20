@@ -1,0 +1,47 @@
+{
+  "cap": {
+    "contexts": {
+      "ctx-1": [
+        "scope1",
+        "scope2"
+      ],
+      "ctx-2": [
+        "scope111",
+        "scope2"
+      ]
+    }
+  },
+  "uma": {
+    "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
+    "client_id": "cap1",
+    "client_secret": "66be9519-4ec8-42dc-ab07-3e7caad187fc"
+  },
+  "caep": {
+    "metadata": {
+      "issuer": "http://localhost:9090",
+      "jwks_uri": "http://localhost:9090/auth/certs",
+      "supported_versions": [
+        "2.0"
+      ],
+      "delivery_methods_supported": [
+        "https://schemas.openid.net/secevent/risc/delivery-method/push"
+      ],
+      "status_endpoint": "http://localhost:9090/set/status",
+      "configuration_endpoint": "http://localhost:9090/set/stream",
+      "add_subject_endpoint": "http://localhost:9090/set/subject:add",
+      "remove_subject_endpoint": "http://localhost:9090/set/subject:remove",
+      "verification_endpoint": "http://localhost:9090/set/verify"
+    },
+    "openid": {
+      "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
+      "rp_id": "cap1",
+      "rp_secret": "66be9519-4ec8-42dc-ab07-3e7caad187fc"
+    },
+    "receivers": {
+      "rp1": {
+        "client_id": "rp1",
+        "host": "http://localhost:8080"
+      }
+    }
+  }
+}
