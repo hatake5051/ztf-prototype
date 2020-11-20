@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/hatake5051/ztf-prototype/ac"
 	acpip "github.com/hatake5051/ztf-prototype/ac/pip"
 	"github.com/hatake5051/ztf-prototype/caep"
 	ztfopenid "github.com/hatake5051/ztf-prototype/openid"
@@ -79,7 +78,7 @@ func (cm *caprp) Get(session string, req []reqCtx) ([]ctx, error) {
 	return ctxs, nil
 }
 
-func (cm *caprp) Agent() (ac.CtxAgent, error) {
+func (cm *caprp) Agent() (acpip.CtxAgent, error) {
 	return &ctxagent{
 		cm.sm.Agent(),
 		cm.recv.Recv,

@@ -4,14 +4,51 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"sync"
 
-	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/uma"
 	"github.com/lestrrat-go/jwx/jwt/openid"
 )
 
+// Repository はいろんなものを保存する場所
+type Repository interface {
+	KeyPrefix() string
+	Save(key string, b []byte) error
+	Load(key string) (b []byte, err error)
+}
+
+func NewRepo() Repository {
+	return &repo{r: make(map[string][]byte)}
+}
+
+type repo struct {
+	m sync.RWMutex
+	r map[string][]byte
+}
+
+func (r *repo) KeyPrefix() string {
+	return "repo"
+}
+
+func (r *repo) Save(key string, b []byte) error {
+	r.m.Lock()
+	defer r.m.Unlock()
+	r.r[key] = b
+	return nil
+}
+
+func (r *repo) Load(key string) (b []byte, err error) {
+	r.m.RLock()
+	defer r.m.RUnlock()
+	b, ok := r.r[key]
+	if !ok {
+		return nil, fmt.Errorf("key(%s) にはまだ保存されていない", key)
+	}
+	return b, nil
+}
+
 type smForSubPIPimpl struct {
-	r           ac.Repository
+	r           Repository
 	keyModifier string
 }
 
@@ -43,7 +80,7 @@ func (sm *smForSubPIPimpl) Set(session string, subID *subIdentifier) error {
 }
 
 type subDBimple struct {
-	r           ac.Repository
+	r           Repository
 	keyModifier string
 }
 
@@ -77,7 +114,7 @@ func (db *subDBimple) Set(idt openid.Token) error {
 }
 
 type smForCtxManagerimple struct {
-	r           ac.Repository
+	r           Repository
 	keyModifier string
 }
 
@@ -109,7 +146,7 @@ func (sm *smForCtxManagerimple) Set(session string, sub *subForCtx) error {
 }
 
 type ctxDBimple struct {
-	r           ac.Repository
+	r           Repository
 	keyModifier string
 }
 
@@ -148,7 +185,7 @@ func (db *ctxDBimple) Set(spagID string, c *ctx) error {
 }
 
 type umaClientDBimpl struct {
-	r           ac.Repository
+	r           Repository
 	keyModifier string
 }
 

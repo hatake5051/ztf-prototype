@@ -85,7 +85,7 @@ func (pip *subPIP) Get(session string) (*subject, error) {
 }
 
 // agent は OIDC フローを front で行うエージェントを生成する
-func (pip *subPIP) Agent(issuer string) (ac.AuthNAgent, error) {
+func (pip *subPIP) Agent(issuer string) (acpip.AuthNAgent, error) {
 	v, ok := pip.rps.Load(issuer)
 	if !ok {
 		return nil, fmt.Errorf("このOP(%v)の設定情報がないらしい", issuer)

@@ -6,10 +6,16 @@ import (
 	"github.com/hatake5051/ztf-prototype/ac"
 )
 
+// PDP は認可判断の主体
+type PDP interface {
+	NotifiedOfRequest(ac.Subject, ac.Resource, ac.Action) (reqctxs []ac.ReqContext, deny bool)
+	Decision(ac.Subject, ac.Resource, ac.Action, []ac.Context) error
+}
+
 type Conf struct {
 }
 
-func (c *Conf) New() (ac.PDP, error) {
+func (c *Conf) New() (PDP, error) {
 	return &pdp{}, nil
 }
 

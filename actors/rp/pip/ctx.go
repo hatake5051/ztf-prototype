@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/hatake5051/ztf-prototype/ac"
+	acpip "github.com/hatake5051/ztf-prototype/ac/pip"
 )
 
 // ctx は ac.Context implementation
@@ -77,7 +78,7 @@ func (pip *ctxPIP) GetAll(session string, req []reqCtx) ([]ctx, error) {
 	return ret, nil
 }
 
-func (pip *ctxPIP) Agent(collector string) (ac.CtxAgent, error) {
+func (pip *ctxPIP) Agent(collector string) (acpip.CtxAgent, error) {
 	cm := pip.manager(collector)
 	return cm.Agent()
 }
@@ -110,7 +111,7 @@ func (a *ctxagent) RecvCtx(r *http.Request) error {
 // コンテキストはある collector が集めているものをまとめて管理している
 type ctxManager interface {
 	Get(session string, req []reqCtx) ([]ctx, error)
-	Agent() (ac.CtxAgent, error)
+	Agent() (acpip.CtxAgent, error)
 }
 
 // smForCtxmanager は session と subject の紐付けを管理する

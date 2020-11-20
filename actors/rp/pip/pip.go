@@ -12,7 +12,7 @@ type Conf struct {
 }
 
 // New は設定情報をもとに PIP を構成する
-func (conf *Conf) New(repo ac.Repository) (ac.PIP, error) {
+func (conf *Conf) New(repo Repository) (acpip.PIP, error) {
 	s := conf.SubPIPConf.new(
 		&smForSubPIPimpl{repo, "subpip-sm"},
 		&subDBimple{repo, "subpip-db"},
@@ -44,7 +44,7 @@ func (pip *pip) GetSubject(session string) (ac.Subject, error) {
 	}
 	return sub.ToACSub(), nil
 }
-func (pip *pip) SubjectAuthNAgent(issuer string) (ac.AuthNAgent, error) {
+func (pip *pip) SubjectAuthNAgent(issuer string) (acpip.AuthNAgent, error) {
 	a, err := pip.sub.Agent(issuer)
 	if err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func (pip *pip) GetContexts(session string, reqctxs []ac.ReqContext) ([]ac.Conte
 	return ret, nil
 
 }
-func (pip *pip) ContextAgent(collector string) (ac.CtxAgent, error) {
+func (pip *pip) ContextAgent(collector string) (acpip.CtxAgent, error) {
 	a, err := pip.ctx.Agent(collector)
 	if err != nil {
 		return nil, err

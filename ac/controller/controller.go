@@ -4,16 +4,24 @@ import (
 	"fmt"
 
 	"github.com/hatake5051/ztf-prototype/ac"
+	"github.com/hatake5051/ztf-prototype/ac/pdp"
 	"github.com/hatake5051/ztf-prototype/ac/pip"
 )
 
-func New(pip ac.PIP, pdp ac.PDP) ac.Controller {
+// Controller は PEP の実装で必要なアクセス管理機構を提供する
+type Controller interface {
+	AskForAuthorization(session string, res ac.Resource, a ac.Action) error
+	SubAgent(idp string) (pip.AuthNAgent, error)
+	CtxAgent(cap string) (pip.CtxAgent, error)
+}
+
+func New(pip pip.PIP, pdp pdp.PDP) Controller {
 	return &ctrl{pip, pdp}
 }
 
 type ctrl struct {
-	ac.PIP
-	ac.PDP
+	pip.PIP
+	pdp.PDP
 }
 
 func (c *ctrl) AskForAuthorization(session string, res ac.Resource, a ac.Action) error {
@@ -54,11 +62,11 @@ func (c *ctrl) AskForAuthorization(session string, res ac.Resource, a ac.Action)
 	return c.PDP.Decision(sub, res, a, ctxs)
 }
 
-func (c *ctrl) SubAgent(idp string) (ac.AuthNAgent, error) {
+func (c *ctrl) SubAgent(idp string) (pip.AuthNAgent, error) {
 	return c.PIP.SubjectAuthNAgent(idp)
 }
 
-func (c *ctrl) CtxAgent(cap string) (ac.CtxAgent, error) {
+func (c *ctrl) CtxAgent(cap string) (pip.CtxAgent, error) {
 	return c.PIP.ContextAgent(cap)
 }
 

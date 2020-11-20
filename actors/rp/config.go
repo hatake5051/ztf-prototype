@@ -1,7 +1,6 @@
 package rp
 
 import (
-	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/ac/controller"
 	"github.com/hatake5051/ztf-prototype/ac/pdp"
 	"github.com/hatake5051/ztf-prototype/actors/rp/pip"
@@ -16,7 +15,7 @@ type Conf struct {
 	PDP PDP `json:"pdp"`
 }
 
-func (conf *Conf) New(repo ac.Repository) ac.Controller {
+func (conf *Conf) New(repo pip.Repository) controller.Controller {
 	pip, err := conf.PIP.To().New(repo)
 	if err != nil {
 		panic(err)
