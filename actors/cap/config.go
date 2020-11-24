@@ -6,16 +6,20 @@ import (
 	"github.com/hatake5051/ztf-prototype/uma"
 )
 
+// Conf は CAP の設定情報
 type Conf struct {
 	CAP  *CAPConf  `json:"cap"`
 	UMA  *UMAConf  `json:"uma"`
 	CAEP *CAEPConf `json:"caep"`
 }
 
+// CAPConf は CAP その者の設定情報
 type CAPConf struct {
 	Contexts map[string][]string `json:"contexts"`
 	Openid   *Openid             `json:"openid"`
 }
+
+// UMAConf は CAP で UMA ResSrv として振る舞うための設定情報
 type UMAConf struct {
 	AuthZ        string `json:"authZ"`
 	ClientID     string `json:"client_id"`
@@ -32,6 +36,7 @@ func (c *UMAConf) to() *uma.ResSrvConf {
 	}
 }
 
+// Metadata は CAP で CAEP Transmitter として振る舞うためのメタデータ
 type Metadata struct {
 	Issuer                   string   `json:"issuer"`
 	JwksURI                  string   `json:"jwks_uri"`
@@ -44,6 +49,7 @@ type Metadata struct {
 	VerificationEndpoint     string   `json:"verification_endpoint"`
 }
 
+// Openid は CAP で Openid Connect RP として振る舞うための設定情報
 type Openid struct {
 	Issuer      string `json:"issuer"`
 	RpID        string `json:"rp_id"`
@@ -60,6 +66,7 @@ func (c *Openid) to() *openid.Conf {
 	}
 }
 
+// CAEPConf は CAP で CAEP Transmitter として振る舞うための設定情報
 type CAEPConf struct {
 	Metadata  Metadata `json:"metadata"`
 	Openid    Openid   `json:"openid"`

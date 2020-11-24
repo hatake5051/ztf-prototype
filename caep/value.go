@@ -185,17 +185,6 @@ type ReqAddSub struct {
 	ReqEventScopes map[string][]string `json:"events_scopes_requested"`
 }
 
-// func (set *SETClaim) ToSubAndCtx() (spagID string, c *Context) {
-// 	for id, eClaim := range set.Events {
-// 		return eClaim.Subject.SpagID, &Context{
-// 			Issuer:      set.Iss,
-// 			ID:          id,
-// 			ScopeValues: eClaim.Property,
-// 		}
-// 	}
-// 	return "", nil
-// }
-
 type SSEEventClaim struct {
 	ID      string `json:"-"`
 	Subject struct {

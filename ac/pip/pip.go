@@ -22,7 +22,7 @@ const (
 	// SubjectForCtxUnAuthenticated はContext の Subject が認証されていないことを表す
 	// Option() として cap-host string を返す
 	SubjectForCtxUnAuthenticated
-	// SubjectForCtxUnAuthorizedButReqSubmitted はUMA Authz process で res owner の許可待ち状態であることを表す
+	// SubjectForCtxUnAuthorizeButReqSubmitted はUMA Authz process で res owner の許可待ち状態であることを表す
 	SubjectForCtxUnAuthorizeButReqSubmitted
 	// CtxsNotFound は ctx をまだ rp が所持していないことを表す(CAPからもらう認可は下りているが、まだCAP からもらっていないとか)
 	CtxsNotFound
@@ -31,6 +31,7 @@ const (
 // AuthNAgent は OIDC フローを実装する
 type AuthNAgent interface {
 	Redirect(w http.ResponseWriter, r *http.Request)
+	// Callback は r から idtoken を抽出し session と紐づけて保存する
 	Callback(session string, r *http.Request) error
 }
 

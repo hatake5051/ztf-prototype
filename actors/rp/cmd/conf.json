@@ -32,7 +32,7 @@
           "recv": {
             "caep": {
               "host": "http://localhost:8080",
-              "pushed_endpoint": "http://localhost:8080/auth/pip/ctx/recv",
+              "pushed_endpoint": "http://localhost:8080/auth/pip/ctx/0/recv",
               "iss": "http://localhost:9090"
             },
             "oauth2": {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -18,30 +19,44 @@ type TransConf struct {
 	Tr *Transmitter
 }
 
-func (c *TransConf) New(recvs Recvs) Tr {
+// New は設定情報から caep の transmitter を構築する
+func (c *TransConf) New(recvRepo RecvRepo, subStatusRepo SubStatusRepo, verifier Verifier) Tr {
 	return &tr{
-		conf:  c.Tr,
-		recvs: recvs,
+		conf:       c.Tr,
+		recvRepo:   recvRepo,
+		statusRepo: subStatusRepo,
+		verifier:   verifier,
 	}
 }
 
+// Tr は CAEP の Transmitter を表す
 type Tr interface {
-	WellKnown(w http.ResponseWriter, r *http.Request)
-	ReadStreamStatus(w http.ResponseWriter, r *http.Request)
-	UpdateStreamStatus(w http.ResponseWriter, r *http.Request)
-	ReadStreamConfig(w http.ResponseWriter, r *http.Request)
-	UpdateStreamConfig(w http.ResponseWriter, r *http.Request)
-	AddSub(w http.ResponseWriter, r *http.Request)
+	// Router は CAEP Transmitter Endpoint を mux.Router に構築する
+	Router(r *mux.Router)
+	// Transmit は aud に event を送信する
 	Transmit(aud []Receiver, event *SSEEventClaim) error
 }
 
-type Recvs interface {
-	Verify(authHeader string) (*Receiver, error)
-	VerifyAndValidateAddSub(authHeader string, req *ReqAddSub) (*Receiver, *StreamStatus, error)
-	SubStatus(recv *Receiver, spgID string) (*StreamStatus, error)
-	SetSubStatus(*Receiver, *ReqChangeOfStreamStatus) (*StreamStatus, error)
-	SetStreamConf(*Receiver, *StreamConfig) (*Receiver, error)
-	SetSub(*Receiver, *StreamStatus) error
+// RecvRepo は Transmitter が管轄している Receiver を永続化する
+type RecvRepo interface {
+	Load(recvID string) (*Receiver, error)
+	Save(*Receiver) error
+}
+
+// SubStatusRepo は Transmitter が管轄している Receiver のサブジェクトごとの status を永続化する
+type SubStatusRepo interface {
+	Load(recvID, spagID string) (*StreamStatus, error)
+	Save(recvID string, status *StreamStatus) error
+}
+
+// Verifier は Receiver が Event Stream Management API を叩く時の認可情報を検証する
+// また、認可情報から recveiver を識別する
+// Status のときは ReqChangeOfStreamStatus の認可情報を見てそれに基づいて更新した status を返す
+// AddSub のときは ReqAddSub を authHeader の認可情報を見てそれに基づいて更新した status を返す
+type Verifier interface {
+	Stream(authHeader string) (recvID string, err error)
+	Status(authHeader string, req *ReqChangeOfStreamStatus) (recvID string, status *StreamStatus, err error)
+	AddSub(authHeader string, req *ReqAddSub) (recvID string, status *StreamStatus, err error)
 }
 
 type TransError interface {
@@ -64,8 +79,31 @@ const (
 )
 
 type tr struct {
-	conf  *Transmitter
-	recvs Recvs
+	conf       *Transmitter
+	recvRepo   RecvRepo
+	statusRepo SubStatusRepo
+	verifier   Verifier
+}
+
+func (tr *tr) Router(r *mux.Router) {
+	r.HandleFunc("/.well-known/sse-configuration", tr.WellKnown)
+	u, err := url.Parse(tr.conf.ConfigurationEndpoint)
+	if err != nil {
+		panic("設定をミスってるよ" + err.Error())
+	}
+	r.PathPrefix(u.Path).Methods("GET").HandlerFunc(tr.ReadStreamConfig)
+	r.PathPrefix(u.Path).Methods("POST").HandlerFunc(tr.UpdateStreamConfig)
+	u, err = url.Parse(tr.conf.StatusEndpoint)
+	if err != nil {
+		panic("設定をミスってるよ" + err.Error())
+	}
+	r.PathPrefix(u.Path).Methods("GET").HandlerFunc(tr.ReadStreamStatus)
+	r.PathPrefix(u.Path + "/{spag}").Methods("GET").HandlerFunc(tr.ReadStreamStatus)
+	u, err = url.Parse(tr.conf.AddSubjectEndpoint)
+	if err != nil {
+		panic("設定をミスってるよ" + err.Error())
+	}
+	r.PathPrefix(u.Path).Methods("POST").HandlerFunc(tr.AddSub)
 }
 
 func (tr *tr) WellKnown(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +116,7 @@ func (tr *tr) WellKnown(w http.ResponseWriter, r *http.Request) {
 
 func (tr *tr) ReadStreamStatus(w http.ResponseWriter, r *http.Request) {
 	// Token の検証をして、対応する Receiver を識別する (Sec.9)
-	recv, err := tr.recvs.Verify(r.Header.Get("Authorization"))
+	recvID, _, err := tr.verifier.Status(r.Header.Get("Authorization"), nil)
 	if err != nil {
 		if err, ok := err.(TransError); ok {
 			if err.Code() == TransErrorUnAuthorized {
@@ -91,23 +129,39 @@ func (tr *tr) ReadStreamStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
+
 	// spagID の status を調べようとしているかチェック
 	spagID := mux.Vars(r)["spagID"]
-	j, err := tr.recvs.SubStatus(recv, spagID)
+	status, err := tr.statusRepo.Load(recvID, spagID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(j); err != nil {
+	if err := json.NewEncoder(w).Encode(status); err != nil {
 		http.Error(w, "失敗", http.StatusInternalServerError)
 		return
 	}
 }
 
 func (tr *tr) UpdateStreamStatus(w http.ResponseWriter, r *http.Request) {
+	// 要求をパースする
+	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if contentType != "application/json" {
+		http.Error(w, "unmached content-type", http.StatusBadRequest)
+		return
+	}
+	reqStatus := new(ReqChangeOfStreamStatus)
+	if err := json.NewDecoder(r.Body).Decode(reqStatus); err != nil {
+		http.Error(w, "status update 要求のパースに失敗", http.StatusNotFound)
+		return
+	}
 	// Token の検証をして、対応する Receiver を識別する (Sec.9)
-	recv, err := tr.recvs.Verify(r.Header.Get("Authorization"))
+	recvID, status, err := tr.verifier.Status(r.Header.Get("Authorization"), reqStatus)
 	if err != nil {
 		if err, ok := err.(TransError); ok {
 			if err.Code() == TransErrorUnAuthorized {
@@ -120,27 +174,20 @@ func (tr *tr) UpdateStreamStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	defer r.Body.Close()
-	reqStatus := new(ReqChangeOfStreamStatus)
-	if err := json.NewDecoder(r.Body).Decode(reqStatus); err != nil {
-		http.Error(w, "status update 要求のパースに失敗", http.StatusNotFound)
-		return
-	}
-	j, err := tr.recvs.SetSubStatus(recv, reqStatus)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+	if err := tr.statusRepo.Save(recvID, status); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(j); err != nil {
-		http.Error(w, "失敗", http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 }
 
 func (tr *tr) ReadStreamConfig(w http.ResponseWriter, r *http.Request) {
 	// Token の検証をして、対応する Receiver を識別する (Sec.9)
-	recv, err := tr.recvs.Verify(r.Header.Get("Authorization"))
+	recvID, err := tr.verifier.Stream(r.Header.Get("Authorization"))
 	if err != nil {
 		if err, ok := err.(TransError); ok {
 			if err.Code() == TransErrorUnAuthorized {
@@ -151,6 +198,11 @@ func (tr *tr) ReadStreamConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	recv, err := tr.recvRepo.Load(recvID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -162,7 +214,7 @@ func (tr *tr) ReadStreamConfig(w http.ResponseWriter, r *http.Request) {
 
 func (tr *tr) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 	// Token の検証をして、対応する Receiver を識別する (Sec.9)
-	recv, err := tr.recvs.Verify(r.Header.Get("Authorization"))
+	recvID, err := tr.verifier.Stream(r.Header.Get("Authorization"))
 	if err != nil {
 		if err, ok := err.(TransError); ok {
 			if err.Code() == TransErrorUnAuthorized {
@@ -175,16 +227,21 @@ func (tr *tr) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	defer r.Body.Close()
 	req := new(StreamConfig)
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 		http.Error(w, "status update 要求のパースに失敗", http.StatusNotFound)
 		return
 	}
-	recv, err = tr.recvs.SetStreamConf(recv, req)
+	recv, err := tr.recvRepo.Load(recvID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if ismodified := recv.StreamConf.Update(req); ismodified {
+		if err := tr.recvRepo.Save(recv); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(recv.StreamConf); err != nil {
@@ -195,7 +252,6 @@ func (tr *tr) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 
 func (tr *tr) AddSub(w http.ResponseWriter, r *http.Request) {
 	// 要求をパースする
-	defer r.Body.Close()
 	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -212,7 +268,7 @@ func (tr *tr) AddSub(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Token の検証をして、対応する Receiver を識別する (Sec.9)
-	recv, status, err := tr.recvs.VerifyAndValidateAddSub(r.Header.Get("Authorization"), req)
+	recvID, status, err := tr.verifier.AddSub(r.Header.Get("Authorization"), req)
 	if err != nil {
 		if err, ok := err.(TransError); ok {
 			if err.Code() == TransErrorUnAuthorized {
@@ -231,49 +287,11 @@ func (tr *tr) AddSub(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	if err := tr.recvs.SetSub(recv, status); err != nil {
+	if err := tr.statusRepo.Save(recvID, status); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	return
-	// //
-	// rpt := r.Header.Get("Authorization")
-	// if rpt != "" { // TODO rpt validate
-	// 	fmt.Printf("subject(%v)を追加しました\nrpt: %s\n", addSubReq, rpt)
-	// 	tr.subjects.Store(addSubReq.Sub.SpagID, rpt)
-	// 	if err := tr.Transmit(addSubReq.Sub.SpagID, &Context{
-	// 		Issuer: tr.Host,
-	// 		ID:     "ctx1",
-	// 		ScopeValues: map[string]string{
-	// 			"scope1": "scope1-value",
-	// 			"scope2": "scope2-value",
-	// 		},
-	// 	}); err != nil {
-	// 		fmt.Printf("送信に失敗したらしい %v", err)
-	// 	}
-	// 	return
-	// }
-	// var reqreses []uma.ResReqForPT
-	// ctxIDMap := map[string]string{
-	// 	"ctx1": "49f536eb-41ce-4084-9389-0aae1c8b95c8",
-	// 	"ctx2": "8353208d-376e-4c40-a1a7-af6cd84f6522",
-	// }
-	// for id, scopes := range addSubReq.ReqCtx {
-	// 	u := uma.ResReqForPT{
-	// 		ID:     ctxIDMap[id],
-	// 		Scopes: scopes,
-	// 	}
-	// 	reqreses = append(reqreses, u)
-	// }
-	// pt, err := tr.uma.PermissionTicket(reqreses)
-	// if err != nil {
-	// 	fmt.Printf("チケットの取得に失敗... %v", err)
-	// 	http.Error(w, fmt.Sprintf("チケットの取得に失敗 %v", err), http.StatusInternalServerError)
-	// 	return
-	// }
-	// s := fmt.Sprintf(`UMA realm="%s",as_uri="%s",ticket="%s"`, pt.InitialOption.ResSrv, pt.InitialOption.AuthZSrv, pt.Ticket)
-	// w.Header().Add("WWW-Authenticate", s)
-	// w.WriteHeader(http.StatusUnauthorized)
 }
 
 func (tr *tr) Transmit(aud []Receiver, event *SSEEventClaim) error {

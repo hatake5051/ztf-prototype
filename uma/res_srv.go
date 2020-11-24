@@ -139,6 +139,8 @@ func (u *ressrv) List(owner string) (resIDList []string, err error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	dump, _ := httputil.DumpResponse(resp, true)
+	fmt.Printf("list -> %s\n", dump)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s", resp.Status)
 	}
@@ -157,26 +159,33 @@ func (u *ressrv) List(owner string) (resIDList []string, err error) {
 }
 
 func (u *ressrv) CRUD(method string, res *Res) (*Res, error) {
-	// HTTP Request の作成
-	if method == http.MethodPost {
-		res.OwnerManagedAccess = true
-	}
-	body, err := json.Marshal(res)
-	if err != nil {
-		return nil, err
-	}
+
 	url, err := url.Parse(u.authZ.RRegURL)
 	if err != nil {
 		return nil, err
 	}
-	if method != http.MethodPost {
+
+	// HTTP Request の作成
+	var req *http.Request
+	if method == http.MethodPost || method == http.MethodPut {
+		res.OwnerManagedAccess = true
+		body, err := json.Marshal(res)
+		if err != nil {
+			return nil, err
+		}
+		req, err = http.NewRequest(method, url.String(), bytes.NewBuffer(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Add("Content-Type", "application/json")
+	} else if method == http.MethodGet || method == http.MethodDelete {
 		url.Path = path.Join(url.Path, res.ID)
+		req, err = http.NewRequest(method, url.String(), nil)
+		if err != nil {
+			return nil, err
+		}
 	}
-	req, err := http.NewRequest(method, url.String(), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Content-Type", "application/json")
+
 	// HTTP Request を送信する
 	client := u.patConf.Client(context.Background())
 	resp, err := client.Do(req)
@@ -218,15 +227,36 @@ func (u *ressrv) CRUD(method string, res *Res) (*Res, error) {
 		return nil, fmt.Errorf("content-type unmatched, expected: application/json but %s", contentType)
 	}
 	type id struct {
-		ID                  string `json:"_id"`
-		UserAccessPolicyURI string `json:"user_access_policy_uri,omitempty"`
+		ID    string `json:"_id"`
+		Name  string `json:"name,omitempty"`
+		Owner struct {
+			ID string `json:"id"`
+		} `json:"owner,omitempty"`
+		OwnerManagedAccess bool `json:"ownerManagedAccess,omitempty"`
+		Scopes             []struct {
+			Name string `json:"name`
+		} `json:"resource_scopes,omitempty"`
 	}
 	i := new(id)
 	if err := json.NewDecoder(resp.Body).Decode(i); err != nil {
 		return nil, err
 	}
 	res.ID = i.ID
-	res.UserAccessPolicyURI = i.UserAccessPolicyURI
+	res.Name = i.Name
+	res.Owner = i.Owner.ID
+	res.OwnerManagedAccess = i.OwnerManagedAccess
+	for _, n := range i.Scopes {
+		isContained := false
+		for _, e := range res.Scopes {
+			if e == n.Name {
+				isContained = true
+				break
+			}
+		}
+		if !isContained {
+			res.Scopes = append(res.Scopes, n.Name)
+		}
+	}
 	return res, nil
 
 }

@@ -11,16 +11,16 @@
       ]
     },
     "openid": {
-      "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
+      "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto-idp3",
       "rp_id": "cap1",
-      "rp_secret": "66be9519-4ec8-42dc-ab07-3e7caad187fc",
+      "rp_secret": "fa626a07-59dc-4aa8-933b-9e8b11c653af",
       "redirect_url": "http://localhost:9090/oidc/callback"
     }
   },
   "uma": {
     "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
     "client_id": "cap1",
-    "client_secret": "66be9519-4ec8-42dc-ab07-3e7caad187fc"
+    "client_secret": "cd6641b4-5bf7-46af-822c-a72c51344967"
   },
   "caep": {
     "metadata": {
@@ -41,7 +41,8 @@
     "openid": {
       "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
       "rp_id": "cap1",
-      "rp_secret": "66be9519-4ec8-42dc-ab07-3e7caad187fc"
+      "rp_secret": "cd6641b4-5bf7-46af-822c-a72c51344967",
+      "redirect_url": "http://localhost:9090/oidc/callback"
     },
     "receivers": {
       "rp1": {
