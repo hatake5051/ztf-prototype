@@ -20,7 +20,7 @@ func main() {
 	}
 	r := conf.New()
 	http.Handle("/", r)
-	if err := http.ListenAndServe(":9090", r); err != nil {
+	if err := http.ListenAndServe(":80", r); err != nil {
 		log.Fatal(err)
 	}
 }
