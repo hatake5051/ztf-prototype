@@ -5,6 +5,7 @@
 - DICOMO2020: [branch](https://github.com/hatake5051/ztf-prototype/tree/dicomo2020)
 
 ## プロトタイプのユースケースの動作例はこちら
+https://github.com/hatake5051/ztf-prototype/blob/percom/example/usecase.md
 
 ## How To Run
 この例は一つの物理ホスト上で動かすことを想定している。
