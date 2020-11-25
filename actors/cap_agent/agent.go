@@ -16,7 +16,7 @@ func Send() error {
 		Subject: struct {
 			SubType string "json:\"subject_type\""
 			SpagID  string "json:\"spag_id\""
-		}{"spag", "2a51a659-666c-456f-8f4b-b866de290c49"},
+		}{"spag", "26ba8184-895f-420d-8591-611784805fe3"},
 		Property: map[string]string{
 			"scope1": "new-value!!!!!",
 			"scope2": "newwwwwwwwww-valueeeee!!!!",
@@ -30,7 +30,7 @@ func Send() error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, "http://localhost:9090/ctx/recv", bytes.NewBuffer(ss))
+	req, err := http.NewRequest(http.MethodPost, "http://cap1.ztf-proto.k3.ipv6.mobi/ctx/recv", bytes.NewBuffer(ss))
 	if err != nil {
 		return err
 	}

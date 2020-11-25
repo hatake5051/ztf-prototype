@@ -5,39 +5,39 @@
         "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp"
       ],
       "rp_config": {
-        "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto-idp2": {
+        "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp": {
           "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp",
           "client_id": "rp1",
-          "client_secret": "b8fea1ee-6267-454d-b1ad-f300cb1ffea0",
+          "client_secret": "",
           "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/0/callback"
         }
       }
     },
     "ctx": {
       "ctx_to_cap": {
-        "ctx-1": "http://cap.ztf-proto.k3.ipv6.mobi",
-        "ctx-2": "http://cap.ztf-proto.k3.ipv6.mobi"
+        "ctx-1": "http://cap1.ztf-proto.k3.ipv6.mobi",
+        "ctx-2": "http://cap1.ztf-proto.k3.ipv6.mobi"
       },
       "cap_to_rp": {
-        "http://localhost:9090": {
+        "http://cap1.ztf-proto.k3.ipv6.mobi": {
           "authN": {
-            "cap": "http://cap.ztf-proto.k3.ipv6.mobi",
+            "cap": "http://cap1.ztf-proto.k3.ipv6.mobi",
             "rp_config": {
               "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/context-share",
               "client_id": "rp1",
-              "client_secret": "ef680230-d1dc-4ab1-af05-02e3ee3e6ede",
-              "redirect_url": "http://ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/callback"
+              "client_secret": "",
+              "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/callback"
             }
           },
           "recv": {
             "caep": {
               "host": "http://rp1.ztf-proto.k3.ipv6.mobi",
               "pushed_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/recv",
-              "iss": "http://cap.ztf-proto.k3.ipv6.mobi"
+              "iss": "http://cap1.ztf-proto.k3.ipv6.mobi"
             },
             "oauth2": {
               "client_id": "rp1",
-              "client_secret": "ef680230-d1dc-4ab1-af05-02e3ee3e6ede",
+              "client_secret": "",
               "token_endpoint": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/context-share/protocol/openid-connect/token"
             },
             "uma": {
@@ -49,7 +49,7 @@
               "client_credential": {
                 "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/context-share",
                 "id": "rp1",
-                "secret": "ef680230-d1dc-4ab1-af05-02e3ee3e6ede"
+                "secret": ""
               }
             }
           }

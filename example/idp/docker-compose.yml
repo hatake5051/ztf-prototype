@@ -3,7 +3,6 @@ version: '3'
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:11.0.3
-    container_name: idp.ztf-proto.k3.ipv6.mobi
     environment:
       KEYCLOAK_USER: admin
       KEYCLOAK_PASSWORD: admin

@@ -18,7 +18,7 @@ func (c *Conf) New() *mux.Router {
 	store := sessions.NewCookieStore([]byte("super-secret-key"))
 	u := c.UMA.to().New()
 	us, db := newUMASrv(u, c.CAP.Contexts, store)
-	jwtURL := "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto/protocol/openid-connect/certs"
+	jwtURL := "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/context-share/protocol/openid-connect/certs"
 	v := &addsubverifier{
 		verifier{jwtURL},
 		u,
