@@ -4,9 +4,9 @@ services:
     build:
       context: ../../
       dockerfile: ./example/cap/Dockerfile
-    hostname: cap1.example.com
+    hostname: cap1.ztf-proto.k3.ipv6.mobi
     environment:
-      VIRTUAL_HOST: cap1.example.com
+      VIRTUAL_HOST: cap1.ztf-proto.k3.ipv6.mobi
     ports:
     - "80"
     networks:

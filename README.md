@@ -11,8 +11,6 @@
 $ docker network create reverse-proxy-net
 ```
 
-ホストファイルに example.com の名前解決を書いておく
-
 そしたら、リバースプロキシを up
 ```
 $ pwd
@@ -27,7 +25,7 @@ $ pwd
 $ docker-compose up
 ```
 
-そうすると idp.example.com でIdP(Keycloak) にアクセスできる
+そうすると idp.ztf-proto.k3.ipv6.mobi でIdP(Keycloak) にアクセスできる
 
 realm を作る
 rp1-idp realm を作り、そこにクライアントとして rp1 を作る
