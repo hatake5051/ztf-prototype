@@ -75,7 +75,6 @@ func (p *pep) getSessionID(r *http.Request) (string, error) {
 		return "", nil
 	}
 	if v, ok := session.Values[sidPEP]; ok {
-		fmt.Printf("sessionID exist %s\n", v)
 		return v.(string), nil
 	}
 
@@ -84,7 +83,6 @@ func (p *pep) getSessionID(r *http.Request) (string, error) {
 		return "", err
 	}
 	sessionID := base64.StdEncoding.EncodeToString(b)
-	fmt.Printf("sessionID newed %s\n", sessionID)
 	session.Values[sidPEP] = sessionID
 	return sessionID, nil
 }

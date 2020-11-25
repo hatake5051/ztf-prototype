@@ -177,6 +177,22 @@ func (db *ctxDBimple) Load(sub *subForCtx, req []reqCtx) ([]ctx, error) {
 }
 
 func (db *ctxDBimple) Set(spagID string, c *ctx) error {
+	// 以前に登録したものがあるか
+	b, err := db.r.Load(db.key(spagID, c.ID))
+	if err == nil {
+		var prevCtx ctx
+		buf := bytes.NewBuffer(b)
+		if err := gob.NewDecoder(buf).Decode(&prevCtx); err == nil {
+			// あれば新しく来たものだけ更新する
+			for scopeKey, value := range prevCtx.ScopeValues {
+				_, ok := c.ScopeValues[scopeKey]
+				if !ok {
+					c.ScopeValues[scopeKey] = value
+				}
+			}
+		}
+	}
+
 	buf := bytes.NewBuffer(nil)
 	if err := gob.NewEncoder(buf).Encode(c); err != nil {
 		return err

@@ -65,7 +65,6 @@ func NewTransmitterFetced(issuer string) (*Transmitter, error) {
 		return nil, err
 	}
 	url.Path = path.Join("/.well-known/sse-configuration", url.Path)
-	fmt.Printf("urlpath sse %v\n", url)
 	resp, err := http.Get(url.String())
 	if err != nil {
 		return nil, err
@@ -170,6 +169,7 @@ func (c *StreamConfig) Update(n *StreamConfig) (ismodified bool) {
 				ce = append(ce, e)
 			}
 		}
+		c.EventsRequested = ce
 	}
 	if len(n.EventsDelivered) > 0 && len(c.EventsDelivered) != len(n.EventsDelivered) {
 		c.EventsDelivered = n.EventsDelivered
@@ -231,7 +231,7 @@ func NewSETEventsClaimFromJson(v interface{}) (*SSEEventClaim, bool) {
 	return nil, false
 }
 
-func (e *SSEEventClaim) toClaim() map[string]SSEEventClaim {
+func (e *SSEEventClaim) ToClaim() map[string]SSEEventClaim {
 	return map[string]SSEEventClaim{
 		e.ID: *e,
 	}

@@ -67,7 +67,6 @@ func (rp *rp) CallbackAndExchange(r *http.Request) (openid.Token, error) {
 		return nil, err
 	}
 	rawIDToken, ok := accessToken.Extra("id_token").(string)
-	fmt.Printf("rawIDToken is\n%s\n", rawIDToken)
 	if !ok {
 		return nil, fmt.Errorf("missing token")
 	}

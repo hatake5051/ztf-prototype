@@ -106,7 +106,6 @@ func (recv *recv) ReadStreamStatus(spagID string) (*StreamStatus, error) {
 		return nil, err
 	}
 	url.Path = path.Join(url.Path, spagID)
-	fmt.Printf("read url %v\n", url)
 	req, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
 		return nil, err
@@ -117,7 +116,7 @@ func (recv *recv) ReadStreamStatus(spagID string) (*StreamStatus, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
+	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, newEO(fmt.Errorf("401"), RecvErrorCodeUnAuthorized, resp)
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -133,23 +132,24 @@ func (recv *recv) ReadStreamStatus(spagID string) (*StreamStatus, error) {
 func (recv *recv) SetUpStream(conf *StreamConfig) error {
 	recv.m.Lock()
 	defer recv.m.Unlock()
-	newconf, err := recv.ReadStream()
+	srvSavedConf, err := recv.ReadStream()
 	if err != nil {
 		return err
 	}
-	_ = recv.recv.StreamConf.Update(newconf)
-	ismodified := recv.recv.StreamConf.Update(conf)
+	_ = recv.recv.StreamConf.Update(srvSavedConf)
+	_ = recv.recv.StreamConf.Update(conf)
+	ismodified := srvSavedConf.Update(recv.recv.StreamConf)
 	if ismodified {
-		_, err := recv.UpdateStream(recv.recv.StreamConf)
+		newSrvSavedConf, err := recv.UpdateStream(recv.recv.StreamConf)
 		if err != nil {
 			return err
 		}
+		_ = recv.recv.StreamConf.Update(newSrvSavedConf)
 	}
 	return nil
 }
 
 func (recv *recv) ReadStream() (*StreamConfig, error) {
-	fmt.Printf("tr well known %#v\n", recv.tr)
 	req, err := http.NewRequest("GET", recv.tr.ConfigurationEndpoint, nil)
 	if err != nil {
 		return nil, err

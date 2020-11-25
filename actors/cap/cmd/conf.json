@@ -42,7 +42,7 @@
       "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
       "rp_id": "cap1",
       "rp_secret": "cd6641b4-5bf7-46af-822c-a72c51344967",
-      "redirect_url": "http://localhost:9090/oidc/callback"
+      "redirect_url": "http://localhost:9090/uma/oidc/callback"
     },
     "receivers": {
       "rp1": {

@@ -86,7 +86,7 @@ func (cm *caprp) Agent() (acpip.CtxAgent, error) {
 }
 
 func (cm *caprp) setCtx(spagID string, c *ctx) error {
-	print("caeprecv spagid:%s context:%v  ", spagID, c)
+	fmt.Printf("caeprecv spagid:%s context:%v  \n", spagID, c)
 	return cm.db.Set(spagID, c)
 }
 
