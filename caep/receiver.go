@@ -4,83 +4,22 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"mime"
 	"net/http"
-	"net/http/httputil"
+	"net/url"
+	"path"
+	"sync"
 
-	jwt "github.com/dgrijalva/jwt-go"
-	"github.com/hatake5051/ztf-prototype/uma"
-
-	"golang.org/x/oauth2"
+	"github.com/lestrrat-go/jwx/jwa"
+	"github.com/lestrrat-go/jwx/jwt"
 )
 
-// UpdateCtxsRequested は reqctxIDs を caep.EventStreamConfiguration.events_requested が含んでいるか確認する。
-// 含んでいなければ、含んでいない ctxID を events_requested に追加する
-func (config *CtxStreamConfig) UpdateCtxsRequested(reqctxIDs []string) (ismodified bool) {
-	if len(reqctxIDs) == 0 {
-		return
-	}
-
-	var lackctxNames []string
-	for _, id := range reqctxIDs {
-		if !contains(config.EventsRequested, id) {
-			lackctxNames = append(lackctxNames, id)
-			ismodified = true
-		}
-	}
-	if ismodified {
-		config.EventsRequested = append(config.EventsRequested, lackctxNames...)
-	}
-	return ismodified
-}
-
-// RecvError は error を表す
-type RecvError interface {
-	error
-	Code() RecvErrorCode
-}
-
-// RecvErrorCode は error の種別を表す
-type RecvErrorCode int
-
-const (
-	_ RecvErrorCode = iota
-	// FailedToReadCtxStream は 404 error
-	FailedToReadCtxStream
-	// FailedToUpdateCtxStream は stream config update に失敗したことを示す
-	FailedToUpdateCtxStream
-	// NoOAuthTokenForConfigStream は Config のためのトークンがないことを示す
-	NoOAuthTokenForConfigStream
-	FailedToReadCtxStreamStatus
-	FailedToAddSubject
-	UMAUnAuthorizedWithPermissionTicket
-)
-
-// Recv は caep.Receiver の働きをする
-type Recv interface {
-	// DefaultCtxStreamConfig は recver の静的なデフォルトの設定情報を取得する
-	DefaultCtxStreamConfig() *CtxStreamConfig
-	// ReadCtxsStream は Get /set/stream する
-	ReadCtxStream() (*CtxStreamConfig, error)
-	// UpdateCtxStream は conf を POST /set/stream する
-	UpdateCtxStream(conf *CtxStreamConfig) (*CtxStreamConfig, error)
-	// ReadCtxStreamStatus は Get /set/status/{spag_id} する
-	ReadCtxStreamStatus(spagID string) (*CtxStreamStatus, error)
-	// UpdateCtxStreamStatus(status *CtxStreamStatus) error
-	// AddSubject は POST /set/subjects:add する
-	AddSubject(spadID string, reqctxs []Context) error
-	// Recv は コンテキストを受け取る
-	Recv(*http.Request) error
-}
-
-// RecvConf は caep の Receiver の設定情報を表す
+// RecvConf は caep の Receiver を構築するための設定情報を表す
 type RecvConf struct {
 	// host は Receiver のホスト名
 	Host string
-	// RecvCtxEndpoint は Ctx を受け取るエンドポイント
-	RecvCtxEndpoint string
+	// RecvEndpoint は  を受け取るエンドポイント
+	RecvEndpoint string
 	// Issuer は Transmitter のホスト名
 	Issuer string
 }
@@ -89,80 +28,152 @@ type RecvConf struct {
 // t は stream config/status endpoit の保護に使う OAuth-AccessToken を保持
 // uc は sub add endpoint の保護に使う UMA-RPT を保持
 // set は receive event を context に変換して保存する
-func (conf *RecvConf) New(t *oauth2.Token, uc UMAClient, set SetCtx) (Recv, error) {
-	tr, err := NewTransmitter(conf.Issuer)
+func (conf *RecvConf) New(authHeadersetter AuthHeaderSetter) Recv {
+	tr, err := NewTransmitterFetced(conf.Issuer)
 	if err != nil {
-		return nil, err
+		panic(fmt.Sprintf("Transmitterの設定情報の取得に失敗 %v", err))
 	}
-	return &recv{tr, conf.Host, conf.RecvCtxEndpoint, t, uc, set}, nil
+	r := &Receiver{
+		Host: conf.Host,
+		StreamConf: &StreamConfig{
+			Delivery: struct {
+				DeliveryMethod string `json:"delivery_method"`
+				URL            string `json:"url"`
+			}{"https://schemas.openid.net/secevent/risc/delivery-method/push", conf.RecvEndpoint},
+		},
+	}
+	return &recv{
+		tr:           tr,
+		recv:         r,
+		setAuthHeder: authHeadersetter,
+	}
 }
 
-// SetCtx は caep Receiver が受け取ったコンテキストを PIP で保存する
-type SetCtx func(spagID string, c *Context) error
-
-// UMAClient は Add SUbject するときの UMA AUthz Grant Flow を担う
-type UMAClient interface {
-	// ExtractPermissionTicket は RPT がない/有効でない時にレスポンスされる permission ticket を抽出する
-	ExtractPermissionTicket(spagID string, resp *http.Response) error
-	// RPT は spagID の RPT があレバそれを返す
-	RPT(spagID string) (*uma.RPT, error)
+// Recv は caep.Receiver の働きをする
+type Recv interface {
+	// SetUpStream は StreamConfig を最新のものにして、更新も行う
+	SetUpStream(conf *StreamConfig) error
+	// ReadStreamStatus は Get /set/status/{spag_id} する
+	ReadStreamStatus(spagID string) (*StreamStatus, error)
+	// UpdateStreamStatus(status *StreamStatus) error
+	// AddSubject は POST /set/subjects:add する
+	AddSubject(*ReqAddSub) error
+	// Recv は コンテキストを受け取る
+	Recv(*http.Request) (*SSEEventClaim, error)
 }
+
+// AuthHeaderSetter は Receiver が Stream Mgmt API にアクセスする時のトークンを付与する
+// 付与することができない時はそのまま
+type AuthHeaderSetter interface {
+	ForConfig(r *http.Request)
+	ForSubAdd(spagID string, r *http.Request)
+}
+
+// RecvError は error を表す
+type RecvError interface {
+	error
+	Code() RecvErrorCode
+	Option() interface{}
+}
+
+// RecvErrorCode は error の種別を表す
+type RecvErrorCode int
+
+const (
+	_ RecvErrorCode = iota + 400
+	// RecvErrorUnAuthorized は 401 error
+	// option として *http.Response が含まれるが、Body は読めない
+	RecvErrorCodeUnAuthorized
+	_
+	_
+	// RecvErrorCodeNotFound は 404 error
+	RecvErrorCodeNotFound
+)
 
 type recv struct {
 	// tr は caep.Transmitter の設定情報を含む
 	tr *Transmitter
-	// host は この recv の host を表す
-	host string
-	// recvCtxEndpoint は event-pushed-endpoint を表す
-	recvCtxEndpoint string
+	// recv は Receiver の設定情報を持つ。Read-Write able
+	recv *Receiver
+	m    sync.RWMutex
 	// recvOauth は stream config/status endpoit の保護に使う OAuth-AccessToken を保持
-	configToken *oauth2.Token
-	// umaClient は sub add endpoint の保護に使う UMA-RPT を保持
-	umaClient UMAClient
-	// set は receive event を context に変換して保存する
-	set SetCtx
+	setAuthHeder AuthHeaderSetter
 }
 
-func (recv *recv) DefaultCtxStreamConfig() *CtxStreamConfig {
-	return &CtxStreamConfig{
-		Aud: []string{recv.host},
-		Delivery: struct {
-			DeliveryMethod string `json:"delivery_method"`
-			URL            string `json:"url"`
-		}{"https://schemas.openid.net/secevent/risc/delivery-method/push", recv.recvCtxEndpoint},
-	}
-}
-
-func (recv *recv) ReadCtxStream() (*CtxStreamConfig, error) {
-	req, err := http.NewRequest("GET", recv.tr.ConfigurationEndpoint, nil)
+func (recv *recv) ReadStreamStatus(spagID string) (*StreamStatus, error) {
+	url, err := url.Parse(recv.tr.StatusEndpoint)
 	if err != nil {
 		return nil, err
 	}
-	if recv.configToken == nil {
-		return nil, &cscerr{err, NoOAuthTokenForConfigStream}
+	url.Path = path.Join(url.Path, spagID)
+	req, err := http.NewRequest("GET", url.String(), nil)
+	if err != nil {
+		return nil, err
 	}
-	recv.configToken.SetAuthHeader(req)
+	recv.setAuthHeder.ForConfig(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, &cscerr{fmt.Errorf("error status code %d", resp.StatusCode), NoOAuthTokenForConfigStream}
-	}
-	if resp.StatusCode == http.StatusNotFound {
-
-		return nil, &cscerr{fmt.Errorf("read status with statuscode: 404"), FailedToReadCtxStream}
-	}
 	defer resp.Body.Close()
-	var c CtxStreamConfig
-	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, newEO(fmt.Errorf("401"), RecvErrorCodeUnAuthorized, resp)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("read ctx stream status failed statuscode: %v", resp.StatusCode)
+	}
+	s := new(StreamStatus)
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
 		return nil, err
 	}
-	return &c, nil
-
+	return s, nil
 }
 
-func (recv *recv) UpdateCtxStream(conf *CtxStreamConfig) (*CtxStreamConfig, error) {
+func (recv *recv) SetUpStream(conf *StreamConfig) error {
+	recv.m.Lock()
+	defer recv.m.Unlock()
+	srvSavedConf, err := recv.ReadStream()
+	if err != nil {
+		return err
+	}
+	_ = recv.recv.StreamConf.Update(srvSavedConf)
+	_ = recv.recv.StreamConf.Update(conf)
+	ismodified := srvSavedConf.Update(recv.recv.StreamConf)
+	if ismodified {
+		newSrvSavedConf, err := recv.UpdateStream(recv.recv.StreamConf)
+		if err != nil {
+			return err
+		}
+		_ = recv.recv.StreamConf.Update(newSrvSavedConf)
+	}
+	return nil
+}
+
+func (recv *recv) ReadStream() (*StreamConfig, error) {
+	req, err := http.NewRequest("GET", recv.tr.ConfigurationEndpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	recv.setAuthHeder.ForConfig(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, newEO(fmt.Errorf("401"), RecvErrorCodeUnAuthorized, resp)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("read ctx stream status failed statuscode: %v", resp.StatusCode)
+	}
+	c := new(StreamConfig)
+	if err := json.NewDecoder(resp.Body).Decode(c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (recv *recv) UpdateStream(conf *StreamConfig) (*StreamConfig, error) {
 	bodyJSON, err := json.Marshal(conf)
 	if err != nil {
 		return nil, err
@@ -172,68 +183,27 @@ func (recv *recv) UpdateCtxStream(conf *CtxStreamConfig) (*CtxStreamConfig, erro
 		return nil, err
 	}
 	req.Header.Add("Content-Type", "application/json")
-	if recv.configToken == nil {
-		return nil, &cscerr{err, NoOAuthTokenForConfigStream}
-	}
-	recv.configToken.SetAuthHeader(req)
+	recv.setAuthHeder.ForConfig(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
-	}
-	if resp.StatusCode != 200 {
-		dump, _ := httputil.DumpResponse(resp, true)
-		log.Printf("event stream config post failed, resp dump: %s\n", string(dump))
-		return nil, &cscerr{fmt.Errorf("config post failed statuscode: %d", resp.StatusCode), FailedToUpdateCtxStream}
 	}
 	defer resp.Body.Close()
-	var c CtxStreamConfig
-	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
-		return nil, err
-	}
-	return &c, nil
-}
-
-func (recv *recv) ReadCtxStreamStatus(spagID string) (*CtxStreamStatus, error) {
-	url := recv.tr.StatusEndpoint
-	if spagID != "" {
-		url = url + "/" + spagID
-	}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	if recv.configToken == nil {
-		return nil, &cscerr{fmt.Errorf("recv.configToken がありません！！！"), NoOAuthTokenForConfigStream}
-	}
-	recv.configToken.SetAuthHeader(req)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, newEO(fmt.Errorf("401"), RecvErrorCodeUnAuthorized, resp)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &cscerr{fmt.Errorf("read ctx stream status failed statuscode: %v", resp.StatusCode), FailedToReadCtxStreamStatus}
+		return nil, fmt.Errorf("config post failed statuscode: %d", resp.StatusCode)
 	}
-	defer resp.Body.Close()
-	var c CtxStreamStatus
+	var c StreamConfig
 	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
 		return nil, err
 	}
 	return &c, nil
 }
 
-func (recv *recv) AddSubject(spagID string, reqctxs []Context) error {
-	ctxsReqJSON := make(map[string]interface{})
-	for _, c := range reqctxs {
-		ctxsReqJSON[c.ID] = c.Scopes
-	}
-	body := map[string]interface{}{
-		"subject": map[string]string{
-			"subject_type": "spag",
-			"spag_id":      spagID,
-		},
-		"events_scopes_requested": ctxsReqJSON,
-	}
-	bodyJSON, err := json.Marshal(body)
+func (recv *recv) AddSubject(reqadd *ReqAddSub) error {
+	bodyJSON, err := json.Marshal(reqadd)
 	if err != nil {
 		return err
 	}
@@ -242,57 +212,73 @@ func (recv *recv) AddSubject(spagID string, reqctxs []Context) error {
 		return err
 	}
 	req.Header.Add("Content-Type", "application/json")
-	if t, err := recv.umaClient.RPT(spagID); err == nil {
-		t.SetAuthHeader(req)
-	}
+	recv.setAuthHeder.ForSubAdd(reqadd.Sub.SpagID, req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		recv.umaClient.ExtractPermissionTicket(spagID, resp)
-		return &cscerr{fmt.Errorf("%s:%s", spagID, "permission-ticket"), UMAUnAuthorizedWithPermissionTicket}
+		return newEO(fmt.Errorf("UMA 401"), RecvErrorCodeUnAuthorized, resp)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return newE(fmt.Errorf("CAEP 404"), RecvErrorCodeNotFound)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return &cscerr{fmt.Errorf("config post failed statuscode: %v", resp.StatusCode), FailedToAddSubject}
+		return fmt.Errorf("config post failed statuscode: %v", resp.StatusCode)
 	}
 	return nil
 }
 
-func (recv *recv) Recv(r *http.Request) error {
+func (recv *recv) Recv(r *http.Request) (*SSEEventClaim, error) {
+	recv.m.RLock()
+	defer recv.m.RUnlock()
 	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if contentType != "application/secevent+jwt" {
-		return err
+		return nil, err
 	}
 
-	defer r.Body.Close()
-	b, err := ioutil.ReadAll(r.Body)
+	tok, err := jwt.Parse(r.Body, jwt.WithVerify(jwa.HS256, []byte("secret-hs-256-key")))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	tok, err := jwt.ParseWithClaims(string(b), &SETClaim{}, func(t *jwt.Token) (interface{}, error) {
-		// TODO: ベタガキをやめよう
-		return []byte("secret-hs256-key"), nil
-	})
-	if set, ok := tok.Claims.(*SETClaim); ok && tok.Valid {
-		return recv.set(set.ToSubAndCtx())
+	if err := jwt.Verify(tok, jwt.WithAudience(recv.recv.Host), jwt.WithIssuer(recv.tr.Issuer)); err != nil {
+		return nil, err
 	}
-	return err
+	v, ok := tok.Get("events")
+	if !ok {
+		return nil, fmt.Errorf("送られてきたSETに events property がない")
+	}
+	e, ok := NewSETEventsClaimFromJson(v)
+	if !ok {
+		return nil, fmt.Errorf("送られてきたSET events property のパースに失敗")
+	}
+	return e, nil
 }
 
-var _ RecvError = &cscerr{}
+func newE(err error, code RecvErrorCode) RecvError {
+	return &cscerr{err, code, nil}
+}
 
-// cscerr は CtxStreamConfigError を実装する
+func newEO(err error, code RecvErrorCode, opt interface{}) RecvError {
+	return &cscerr{err, code, opt}
+}
+
+// cscerr は StreamConfigError を実装する
 type cscerr struct {
 	error
-	code RecvErrorCode
+	code   RecvErrorCode
+	option interface{}
 }
 
 func (e *cscerr) Code() RecvErrorCode {
 	return e.code
+}
+
+func (e *cscerr) Option() interface{} {
+	return e.option
 }
 
 func contains(src []string, x string) bool {

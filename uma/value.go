@@ -13,12 +13,11 @@ import (
 
 // Res は認可サーバが保護するリソースサーバ上のリソースを表す
 type Res struct {
-	ID                  string   `json:"-"`
-	UserAccessPolicyURI string   `json:"-"`
-	Name                string   `json:"name,omitempty"`
-	Owner               string   `json:"owner,omitempty"`
-	OwnerManagedAccess  bool     `json:"ownerManagedAccess,omitempty"`
-	Scopes              []string `json:"scopes,omitempty"`
+	ID                 string   `json:"_id,omitempty"`
+	Name               string   `json:"name,omitempty"`
+	Owner              string   `json:"owner,omitempty"`
+	OwnerManagedAccess bool     `json:"ownerManagedAccess,omitempty"`
+	Scopes             []string `json:"scopes,omitempty"`
 }
 
 // ResReqForPT は

@@ -121,7 +121,7 @@ func InitialPermissionTicket(resp *http.Response) (*PermissionTicket, error) {
 	}
 	wwwAuthn := resp.Header.Get("WWW-Authenticate")
 	if !strings.HasPrefix(wwwAuthn, "UMA") {
-		return nil, fmt.Errorf("WWW-Authenticated Header should start with UMA")
+		return nil, fmt.Errorf("WWW-Authenticated Header should start with UMA. %s", wwwAuthn)
 	}
 	params := make(map[string]string)
 	for _, s := range strings.Split(wwwAuthn[3:], ",") {
