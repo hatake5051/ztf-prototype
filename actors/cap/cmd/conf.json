@@ -11,43 +11,43 @@
       ]
     },
     "openid": {
-      "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto-idp3",
+      "issuer": "http://idp.example.com/auth/realms/cap-idp",
       "rp_id": "cap1",
       "rp_secret": "fa626a07-59dc-4aa8-933b-9e8b11c653af",
-      "redirect_url": "http://localhost:9090/oidc/callback"
+      "redirect_url": "http://cap1.example.com/oidc/callback"
     }
   },
   "uma": {
-    "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
+    "authZ": "http://idp.example.com/auth/realms/context-share",
     "client_id": "cap1",
-    "client_secret": "cd6641b4-5bf7-46af-822c-a72c51344967"
+    "client_secret": "bbe2b52e-bffa-4102-9f12-1f053910f5ee"
   },
   "caep": {
     "metadata": {
-      "issuer": "http://localhost:9090",
-      "jwks_uri": "http://localhost:9090/auth/certs",
+      "issuer": "http://cap1.example.com",
+      "jwks_uri": "http://cap1.example.com/auth/certs",
       "supported_versions": [
         "2.0"
       ],
       "delivery_methods_supported": [
         "https://schemas.openid.net/secevent/risc/delivery-method/push"
       ],
-      "status_endpoint": "http://localhost:9090/set/status",
-      "configuration_endpoint": "http://localhost:9090/set/stream",
-      "add_subject_endpoint": "http://localhost:9090/set/subject:add",
-      "remove_subject_endpoint": "http://localhost:9090/set/subject:remove",
-      "verification_endpoint": "http://localhost:9090/set/verify"
+      "status_endpoint": "http://cap1.example.com/set/status",
+      "configuration_endpoint": "http://cap1.example.com/set/stream",
+      "add_subject_endpoint": "http://cap1.example.com/set/subject:add",
+      "remove_subject_endpoint": "http://cap1.example.com/set/subject:remove",
+      "verification_endpoint": "http://cap1.example.com/set/verify"
     },
     "openid": {
-      "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/ztf-proto",
+      "issuer": "http://idp.example.com/auth/realms/context-share",
       "rp_id": "cap1",
-      "rp_secret": "cd6641b4-5bf7-46af-822c-a72c51344967",
-      "redirect_url": "http://localhost:9090/oidc/callback"
+      "rp_secret": "bbe2b52e-bffa-4102-9f12-1f053910f5ee",
+      "redirect_url": "http://cap1.example.com/oidc/callback"
     },
     "receivers": {
       "rp1": {
         "client_id": "rp1",
-        "host": "http://localhost:8080"
+        "host": "http://rp1.example.com"
       }
     }
   }

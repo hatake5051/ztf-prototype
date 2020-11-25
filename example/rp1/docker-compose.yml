@@ -1,0 +1,17 @@
+version: '3'
+services:
+  cap:
+    build:
+      context: ../../
+      dockerfile: ./example/rp/Dockerfile
+    hostname: rp1.example.com
+    environment:
+      VIRTUAL_HOST: rp1.example.com
+    ports:
+    - "80"
+    networks:
+    - reverse-proxy-net
+
+networks:
+  reverse-proxy-net:
+    external: true
