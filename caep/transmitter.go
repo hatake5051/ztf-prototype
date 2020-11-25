@@ -97,7 +97,6 @@ func (tr *tr) Router(r *mux.Router) {
 	if err != nil {
 		panic("設定をミスってるよ" + err.Error())
 	}
-	r.PathPrefix(u.Path).Methods("GET").HandlerFunc(tr.ReadStreamStatus)
 	r.PathPrefix(u.Path + "/{spag}").Methods("GET").HandlerFunc(tr.ReadStreamStatus)
 	u, err = url.Parse(tr.conf.AddSubjectEndpoint)
 	if err != nil {
@@ -131,7 +130,7 @@ func (tr *tr) ReadStreamStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// spagID の status を調べようとしているかチェック
-	spagID := mux.Vars(r)["spagID"]
+	spagID := mux.Vars(r)["spag"]
 	status, err := tr.statusRepo.Load(recvID, spagID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -238,6 +237,11 @@ func (tr *tr) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ismodified := recv.StreamConf.Update(req); ismodified {
+		for _, e := range recv.StreamConf.EventsRequested {
+			if contains(recv.StreamConf.EventsSupported, e) {
+				recv.StreamConf.EventsDelivered = append(recv.StreamConf.EventsDelivered, e)
+			}
+		}
 		if err := tr.recvRepo.Save(recv); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -302,7 +306,7 @@ func (tr *tr) Transmit(aud []Receiver, event *SSEEventClaim) error {
 	}
 	t.Set(jwt.IssuedAtKey, time.Now())
 	t.Set(jwt.JwtIDKey, "metyakutya-random")
-	t.Set("events", event.toClaim())
+	t.Set("events", event.ToClaim())
 
 	ss, err := jwt.Sign(t, jwa.HS256, []byte("secret-hs-256-key"))
 	if err != nil {

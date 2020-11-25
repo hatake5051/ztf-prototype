@@ -62,10 +62,10 @@ func (pip *pip) GetContexts(session string, reqctxs []ac.ReqContext) ([]ac.Conte
 	}
 	var ret []ac.Context
 	for _, c := range ctxs {
-		ret = append(ret, &wrapC{&c})
+		tmp := c
+		ret = append(ret, &wrapC{&tmp})
 	}
 	return ret, nil
-
 }
 func (pip *pip) ContextAgent(collector string) (acpip.CtxAgent, error) {
 	a, err := pip.ctx.Agent(collector)

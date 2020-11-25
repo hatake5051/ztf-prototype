@@ -38,7 +38,7 @@ type umasrv struct {
 }
 
 func (u *umasrv) CRUD(w http.ResponseWriter, r *http.Request) {
-	session, err := u.store.Get(r, "cookie-auth")
+	session, err := u.store.Get(r, "UMA_PROTECTION_API_AUTHN")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -92,7 +92,7 @@ func (u *umasrv) CRUD(w http.ResponseWriter, r *http.Request) {
 	s += fmt.Sprintf("<li>%s: %t</li>", "OwnerManagedAccess", res.OwnerManagedAccess)
 	s += fmt.Sprintf("<li>%s: %s</li>", "Scopes", strings.Join(res.Scopes, " "))
 	s += "</ul>"
-	s += `<a href=/>一覧に戻る</a>`
+	s += `<a href="/auth/list">一覧に戻る</a>`
 	s += "</body></html>"
 	// んー、<> をエスケープしない
 	w.Write([]byte(s))
@@ -119,7 +119,6 @@ func (db *umaDB) Load(spagID, ctxID string) (*uma.Res, error) {
 		db.onces[spagID] = once
 	}
 	once.Do(func() {
-		fmt.Printf("spagID(%s) のデータベースを初期化します\n", spagID)
 		resIDs, err := db.uma.List(spagID)
 		if err != nil {
 			fmt.Printf("spagID(%s) の登録済みリソース一覧に取得に失敗 %v\n", spagID, err)
@@ -136,7 +135,6 @@ func (db *umaDB) Load(spagID, ctxID string) (*uma.Res, error) {
 			db.db2[rid] = *res
 		}
 		db.m1.Unlock()
-		fmt.Printf("spagID(%s) のデータベースは初期化された\n", spagID)
 	})
 	db.m2.Unlock()
 	db.m1.RLock()

@@ -11,37 +11,6 @@ import (
 	"github.com/lestrrat-go/jwx/jwt"
 )
 
-func newTr(
-	ctxs map[string][]string,
-	conf *CAEPConf,
-	jwtURL string,
-	uma uma.ResSrv,
-	db resDB,
-) caep.Tr {
-	v := &addsubverifier{
-		verifier{jwtURL},
-		uma,
-		db,
-	}
-	recvRepo := &trStreamDB{db: make(map[string]caep.Receiver)}
-	for recvID, v := range conf.Receivers {
-		recvRepo.Save(&caep.Receiver{
-			ID:         recvID,
-			Host:       v.Host,
-			StreamConf: &caep.StreamConfig{},
-		})
-	}
-	statusRepo := &trStatusDB{db: make(map[string]map[string]caep.StreamStatus)}
-	d := &distributer{
-		inner: statusRepo,
-		ctxs:  ctxs,
-		recvs: recvRepo,
-	}
-	tr := conf.to().New(recvRepo, d, v)
-	d.tr = tr
-	return tr
-}
-
 type verifier struct {
 	jwtURL string
 }
@@ -158,7 +127,6 @@ func permittedEventScopesFrom(tok jwt.Token) (map[string][]string, error) {
 			return nil, fmt.Errorf("RPTパースえらー")
 		}
 		v6, ok := v5["scopes"]
-		fmt.Printf("v6 %#v\n", v6)
 		v7, ok := v6.([]interface{})
 		var scopes []string
 		for _, v8 := range v7 {

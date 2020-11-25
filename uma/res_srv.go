@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"path"
 
@@ -139,8 +138,6 @@ func (u *ressrv) List(owner string) (resIDList []string, err error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	dump, _ := httputil.DumpResponse(resp, true)
-	fmt.Printf("list -> %s\n", dump)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s", resp.Status)
 	}
@@ -193,8 +190,6 @@ func (u *ressrv) CRUD(method string, res *Res) (*Res, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	dump, _ := httputil.DumpResponse(resp, true)
-	fmt.Printf("uma crud resp %s\n", dump)
 	// UMA のエラーレスポンスかチェック
 	if resp.StatusCode == http.StatusNotFound ||
 		resp.StatusCode == http.StatusMethodNotAllowed ||

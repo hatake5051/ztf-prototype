@@ -42,7 +42,7 @@
       "issuer": "http://idp.example.com/auth/realms/context-share",
       "rp_id": "cap1",
       "rp_secret": "bbe2b52e-bffa-4102-9f12-1f053910f5ee",
-      "redirect_url": "http://cap1.example.com/oidc/callback"
+      "redirect_url": "http://cap1.example.com/uma/oidc/callback"
     },
     "receivers": {
       "rp1": {
