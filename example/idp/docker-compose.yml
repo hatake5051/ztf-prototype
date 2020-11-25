@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:11.0.3
+    environment:
+      KEYCLOAK_USER: admin
+      KEYCLOAK_PASSWORD: admin
+      VIRTUAL_HOST: idp.ztf-proto.k3.ipv6.mobi
+      VIRTUAL_PORT: 8080
+    networks:
+    - reverse-proxy-net
+
+networks:
+  reverse-proxy-net:
+    external: true

@@ -1,0 +1,17 @@
+version: '3'
+services:
+  cap:
+    build:
+      context: ../../
+      dockerfile: ./example/rp1/Dockerfile
+    hostname: rp1.ztf-proto.k3.ipv6.mobi
+    environment:
+      VIRTUAL_HOST: rp1.ztf-proto.k3.ipv6.mobi
+    ports:
+    - "80"
+    networks:
+    - reverse-proxy-net
+
+networks:
+  reverse-proxy-net:
+    external: true

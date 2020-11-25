@@ -25,7 +25,7 @@ func main() {
 	r := rp.New(ac.New)
 	http.Handle("/", r)
 	log.Println("server starting...")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	if err := http.ListenAndServe(":80", r); err != nil {
 		log.Fatal(err)
 	}
 }
