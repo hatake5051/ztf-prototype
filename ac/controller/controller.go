@@ -10,11 +10,18 @@ import (
 
 // Controller は PEP の実装で必要なアクセス管理機構を提供する
 type Controller interface {
+	// AskForAuthorization は PEP が PDP に認可判断を尋ねる
+	// ユーザの識別がまだ、認証がまだ、コンテキストの取得がまだの場合などはエラーを返す
 	AskForAuthorization(session string, res ac.Resource, a ac.Action) error
+	// SubAgent は idp のための OpenID Connect RP として振る舞うエージェントを返す
+	// PEP はこのエージェントを ZTF の RP エンドポイントに配備する
 	SubAgent(idp string) (pip.AuthNAgent, error)
+	// CtxAgent は cap のための CAEP RP として振る舞うエージェントを返す
+	// PEP はこのエージェントを ZTF の RP エンドポイントに配備する
 	CtxAgent(cap string) (pip.CtxAgent, error)
 }
 
+// New は PIP と PDP を受け取って Controller を構成する
 func New(pip pip.PIP, pdp pdp.PDP) Controller {
 	return &ctrl{pip, pdp}
 }

@@ -24,6 +24,7 @@ type Transmitter struct {
 	VerificationEndpoint     string
 }
 
+// Write は w に t の内容をJSONエンコードして書き込む
 func (t *Transmitter) Write(w io.Writer) error {
 	j := &transmitterJSON{
 		Issuer:                   t.Issuer,
@@ -39,6 +40,7 @@ func (t *Transmitter) Write(w io.Writer) error {
 	return json.NewEncoder(w).Encode(j)
 }
 
+// NewTransmitter は r から JSON を読み取って Transmitter にデコードする
 func NewTransmitter(r io.Reader) (*Transmitter, error) {
 	t := new(transmitterJSON)
 	if err := json.NewDecoder(r).Decode(t); err != nil {
@@ -58,6 +60,7 @@ func NewTransmitter(r io.Reader) (*Transmitter, error) {
 	return tr, nil
 }
 
+// NewTransmitterFetced は issuer の well-known から取得して Trasmitter を構築する
 func NewTransmitterFetced(issuer string) (*Transmitter, error) {
 	url, err := url.Parse(issuer)
 	if err != nil {
@@ -102,7 +105,7 @@ type transmitterJSON struct {
 	VerificationEndpoint     string   `json:"verification_endpoint"`
 }
 
-// Receiver は　を表す
+// Receiver は CAEP Transmitter が管理する Receiver 情報を表す
 type Receiver struct {
 	// ID は Transmitter における Receiver の識別子
 	ID string
@@ -114,15 +117,21 @@ type Receiver struct {
 
 // StreamStatus は caep.EventStreamStatus を表す
 type StreamStatus struct {
-	Status      string              `json:"status"`
-	SpagID      string              `json:"spag_id"`
+	// Status はそのユーザに対する Stream Status を表す
+	Status string `json:"status"`
+	// SpagID はユーザの識別子
+	SpagID string `json:"spag_id"`
+	// EventScopes はそのユーザに対する Stream で提供されるコンテキストとそのスコープを表す
 	EventScopes map[string][]string `json:"events_scopes"`
 }
 
+// ReqChangeOfStreamStatus は CAEP Receiver が Stream Status 変更要求する時のリクエストを表す
 type ReqChangeOfStreamStatus struct {
 	StreamStatus
+	// Authorization はユーザの認可を表すトークン
 	Authorization string `json:"authorization"`
-	Reason        string `json:"reason"`
+	// Reason は Status 変更要求の理由を伝えることができる
+	Reason string `json:"reason"`
 }
 
 // StreamConfig は caep.EventStreamConfiguration を表す
@@ -138,6 +147,8 @@ type StreamConfig struct {
 	EventsDelivered []string `json:"events_delivered"`
 }
 
+// Update は StreamConfig を引数のもので上書きする
+// 上書きした結果、元の StreamConfig から変更があると ismodified が true になる
 func (c *StreamConfig) Update(n *StreamConfig) (ismodified bool) {
 	if n.Iss != "" && n.Iss != c.Iss {
 		c.Iss = n.Iss
@@ -177,14 +188,19 @@ func (c *StreamConfig) Update(n *StreamConfig) (ismodified bool) {
 	return ismodified
 }
 
+// ReqAddSub は Stream にユーザを追加要求する時のリクエストを表す
+// Stream にユーザが追加されることでそのユーザのコンテキストを受け取ることができる
 type ReqAddSub struct {
+	// Sub は Stream に追加したいユーザ情報を表す
 	Sub struct {
 		SubType string `json:"subject_type"`
 		SpagID  string `json:"spag_id"`
 	} `json:"subject"`
+	// ReqEventScopes はどのコンテキストをどの粒度で求めるかを表す
 	ReqEventScopes map[string][]string `json:"events_scopes_requested"`
 }
 
+// SSEEventClaim は Security Event Token のクレーム情報を表す
 type SSEEventClaim struct {
 	ID      string `json:"-"`
 	Subject struct {
@@ -194,6 +210,7 @@ type SSEEventClaim struct {
 	Property map[string]string `json:"property"`
 }
 
+// NewSETEventsClaimFromJson は JSON を SSEEventClaim に変換する
 func NewSETEventsClaimFromJson(v interface{}) (*SSEEventClaim, bool) {
 	v2, ok := v.(map[string]interface{})
 	if !ok {
@@ -231,22 +248,10 @@ func NewSETEventsClaimFromJson(v interface{}) (*SSEEventClaim, bool) {
 	return nil, false
 }
 
+// ToClaim は SSEEventClaim を Secutiry Event Token の event ペイロードへ
+// 当てはめる時の反感を行う。このペイロードは ID をキーにしたマップ型である
 func (e *SSEEventClaim) ToClaim() map[string]SSEEventClaim {
 	return map[string]SSEEventClaim{
 		e.ID: *e,
 	}
 }
-
-// func NewSETEventsClaim(spagID string, c *Context) map[string]EventClaim {
-// 	eClaim := EventClaim{
-// 		ID: c.ID,
-// 		Subject: struct {
-// 			SubType string "json:\"subject_type\""
-// 			SpagID  string "json:\"spag_id\""
-// 		}{"spag", spagID},
-// 		Property: c.ScopeValues,
-// 	}
-// 	return map[string]EventClaim{
-// 		eClaim.ID: eClaim,
-// 	}
-// }

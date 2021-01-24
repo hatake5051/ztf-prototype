@@ -44,8 +44,22 @@ type CtxAgent interface {
 
 // PIP はサブジェクトやコンテキストを管理する
 type PIP interface {
+	// GetSubject は session に紐づくユーザ情報を返す
+	// session に紐づくユーザ情報がない場合 (e.g. 認証がまだ)などのときは
+	// SubjectUnAuthenticated エラーを返す
 	GetSubject(session string) (ac.Subject, error)
+	// SubjectAuthNAgent は idp に対応する認証エージェントを返す
+	// このエージェントは OpenID Connect の RP として振る舞うことができるため
+	// このエージェントのためのエンドポイントを ZTF の RP は準備する
 	SubjectAuthNAgent(idp string) (AuthNAgent, error)
+	// GetContexts は session に紐づくユーザのコンテキストを返す
+	// reqctxs はどのコンテキストをどれほどの粒度で求めているか PIP に伝えることができる
+	// session に紐づくユーザ情報がない場合 (e.g. 認証がまだ)などのときは
+	// SubjectForCtxUnAuthenticated エラーコードを返す
+	// コンテキストを CAP からもらうにはユーザの承認が必要なときは
+	// SubjectForCtxUnAuthorizeButReqSubmitted
+	// コンテキストを CAP からまだ提供されていないときは
+	// CtxsNotFound
 	GetContexts(session string, reqctxs []ac.ReqContext) ([]ac.Context, error)
 	ContextAgent(cap string) (CtxAgent, error)
 }

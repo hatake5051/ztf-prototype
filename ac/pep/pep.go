@@ -15,14 +15,26 @@ import (
 	"github.com/hatake5051/ztf-prototype/ac/pip"
 )
 
+// PEP は Policy Enforcement Point を表すのに加えて、 PIP で必要なエンドポイントを設定する
 type PEP interface {
+	// Protect は r を保護する
+	// r に MW で保護し、r に RecvCtx と Callback のエンドポイントを設定する
 	Protect(r *mux.Router)
+	// MW は r を保護するミドルウェア
+	// このミドルウェアを通過するとは、PDPが承認したということ
+	// 内部で Redirect を利用する
 	MW(next http.Handler) http.Handler
+	// RecvCtx は CAP からコンテキストを受け取るエンドポイントに対応する http.HandlerFUnc を返す
 	RecvCtx(transmitter string) http.HandlerFunc
+	// Redirect は IdP にユーザをリダイレクトする
 	Redirect(host string, isCAP bool) http.HandlerFunc
+	// Callback は IdP からリダイレクトバックする先のエンドポイントに対応する http.HandlerFunc を返す
 	Callback(host string, isCAP bool) http.HandlerFunc
 }
 
+// New は PEP を構築する。
+// idp は PDP がユーザ識別のために使う IdP を URL で指定する。
+// calList は PDP が認可判断のために使う CAP を URL のリストで指定する。
 func New(prefix string,
 	idp string,
 	capList []string,
@@ -40,6 +52,8 @@ func New(prefix string,
 	}
 }
 
+// Helper は http.Request をアクセス制御部で使う構造体に変換する
+// HTTP要求をどのリソースへどういったアクションを試みているかにパースする。
 type Helper interface {
 	ParseAccessRequest(r *http.Request) (ac.Resource, ac.Action, error)
 }

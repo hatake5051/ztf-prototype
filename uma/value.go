@@ -20,7 +20,7 @@ type Res struct {
 	Scopes             []string `json:"scopes,omitempty"`
 }
 
-// ResReqForPT は
+// ResReqForPT は リソースを要求する時のリクエストを表す
 type ResReqForPT struct {
 	ID     string   `json:"resource_id"`
 	Scopes []string `json:"resource_scopes"`

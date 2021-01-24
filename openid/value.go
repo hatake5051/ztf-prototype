@@ -9,6 +9,7 @@ import (
 	"path"
 )
 
+/// OP は OpenID Provider の 設定を表す
 type OP struct {
 	Issuer                                     string   `json:"issuer"`
 	AuthorizationEndpoint                      string   `json:"authorization_endpoint"`
@@ -40,6 +41,7 @@ type OP struct {
 	TLSClientCertificateBoundAccessTokens      bool     `json:"tls_client_certificate_bound_access_tokens"`
 }
 
+/// NewOPFetched は issuer から OP の設定情報を取得する。
 func NewOPFetched(issuer string) (*OP, error) {
 	url, err := url.Parse(issuer)
 	if err != nil {

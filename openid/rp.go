@@ -22,6 +22,7 @@ type Conf struct {
 	RedirectURL string
 }
 
+/// New は RP の設定情報をもとに OpenID RP を構築する。
 func (c *Conf) New() RP {
 	op, err := NewOPFetched(c.Issuer)
 	if err != nil {
@@ -43,8 +44,12 @@ func (c *Conf) New() RP {
 	}
 }
 
+/// RP は OpenID RP で必要な関数を定義する
 type RP interface {
+	/// Redirect は OpenId Provider の認証エンドポイントへリダイレクトさせる
 	Redirect(w http.ResponseWriter, r *http.Request)
+	/// CallbackAndExchange は OP の認可エンドポイントで認証した後
+	/// コールバックしてくる先であり、IDToken を取得しにいく
 	CallbackAndExchange(r *http.Request) (openid.Token, error)
 }
 
