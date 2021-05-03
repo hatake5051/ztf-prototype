@@ -284,7 +284,7 @@ type UMAClientConf struct {
 }
 
 func (conf *UMAClientConf) new(db umaClientDB) (*umaClient, error) {
-	umaconf := uma.Conf{
+	umaconf := uma.ClientConf{
 		AuthZSrv: conf.ClientCredential.AuthzSrv,
 		ClientCred: struct {
 			ID     string
