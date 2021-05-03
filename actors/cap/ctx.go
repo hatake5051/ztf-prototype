@@ -6,11 +6,28 @@ import (
 	"sync"
 
 	"github.com/hatake5051/ztf-prototype/caep"
+	"github.com/hatake5051/ztf-prototype/uma"
 )
+
+// ctxType はコンテキストのクラスを表現する
+type ctxType string
+
+// UMAResType は ctxType を uma.ResType に適合させる
+func (t ctxType) UMAResType() uma.ResType {
+	return uma.ResType(t)
+}
+
+// ctxScope はコンテキストのスコープを表現する
+type ctxScope string
 
 type ctx struct {
 	ID          string
-	ScopeValues map[string]string
+	Type        ctxType
+	Name        string
+	Scopes      []ctxScope
+	ScopeValues map[ctxScope]string
+	// TODO: AUthZSrv が複数ある場合
+	IDAtAuthZSrv uma.ResID
 }
 
 type recvs struct {
@@ -50,9 +67,14 @@ type distributer struct {
 
 func (d *distributer) RecvAndDistribute(e *caep.SSEEventClaim) {
 	fmt.Printf("新しいコンテキストを受け取った %v\n", e)
+	// TODO: caep の修正は明日
+	tmp := make(map[ctxScope]string)
+	for k, v := range e.Property {
+		tmp[ctxScope(k)] = v
+	}
 	c := &ctx{
 		ID:          e.ID,
-		ScopeValues: e.Property,
+		ScopeValues: tmp,
 	}
 	spagID := e.Subject.SpagID
 	recvers := d.recvs.WhereDistribution(e.ID)
@@ -90,8 +112,8 @@ func (d *distributer) Ditribute(c *ctx, spagID, recvID string) {
 	prop := make(map[string]string)
 	for scope, v := range c.ScopeValues {
 		for _, s := range scopes {
-			if scope == s {
-				prop[scope] = v
+			if string(scope) == s {
+				prop[string(scope)] = v
 				break
 			}
 		}
@@ -116,9 +138,9 @@ func (d *distributer) DistributeDueToSubStatus(recvID string, status *caep.Strea
 	}
 	cm := make(map[string]ctx)
 	for ctxID, scopes := range d.ctxs {
-		sv := make(map[string]string)
+		sv := make(map[ctxScope]string)
 		for _, s := range scopes {
-			sv[s] = s + ":value"
+			sv[ctxScope(s)] = s + ":value"
 		}
 		cm[ctxID] = ctx{
 			ID:          ctxID,
@@ -147,8 +169,8 @@ func (d *distributer) DistributeDueToSubStatus(recvID string, status *caep.Strea
 		prop := make(map[string]string)
 		for scope, v := range ctx.ScopeValues {
 			for _, s := range scopes {
-				if scope == s {
-					prop[scope] = v
+				if string(scope) == s {
+					prop[string(scope)] = v
 					break
 				}
 			}

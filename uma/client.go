@@ -13,8 +13,10 @@ import (
 )
 
 // ClientConf はUMAクライアントの設定情報を表す
-type Conf struct {
-	AuthZSrv   string
+type ClientConf struct {
+	// AuthZSrv は認可サーバの URL である
+	AuthZSrv string
+	//  ClientCred は認可サーバにアクセスする際のクレデンシャルである
 	ClientCred struct {
 		ID     string
 		Secret string
@@ -23,7 +25,7 @@ type Conf struct {
 
 // New は設定情報をもとにUMAクライアントを構築する
 // 認可サーバの情報の取得に失敗するとパニック
-func (c *Conf) New() Client {
+func (c *ClientConf) New() Client {
 	authZSrv, err := NewAuthZSrv(c.AuthZSrv)
 	if err != nil {
 		panic(fmt.Sprintf("uma.Client の構成に失敗(認可サーバの設定を取得できなかった) err: %v", err))
@@ -48,7 +50,10 @@ func (c *Conf) New() Client {
 
 // Client はUMAクライアントを表す
 type Client interface {
+	// ExtractPermissionTicket はリソースサーバが応答した HTTP Response から
+	// Permission Ticket を抽出する
 	ExtractPermissionTicket(resp *http.Response) (*PermissionTicket, error)
+	// ReqRPT は認可サーバに RPT 要求を行う
 	ReqRPT(pt *PermissionTicket, rawidToken string) (*RPT, error)
 }
 
@@ -69,7 +74,7 @@ type cli struct {
 }
 
 func (c *cli) ExtractPermissionTicket(resp *http.Response) (*PermissionTicket, error) {
-	pt, err := InitialPermissionTicket(resp)
+	pt, err := initialPermissionTicket(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +84,10 @@ func (c *cli) ExtractPermissionTicket(resp *http.Response) (*PermissionTicket, e
 	return pt, nil
 }
 
-func (c *cli) Config(ticket, rawIDToken string) *clientcredentials.Config {
+// config は RPT を認可サーバに要求する際のパラメータを設定する。
+// ticket はリソースサーバ から応答された permission ticket を、
+// rawIDToken は認可サーバが理解できる、RPの Identity を IDToken で表現したものを引数として与える
+func (c *cli) config(ticket, rawIDToken string) *clientcredentials.Config {
 	ret := c.conf
 	newparams := url.Values{}
 	for k, v := range ret.EndpointParams {
@@ -100,8 +108,9 @@ func (c *cli) ReqRPT(pt *PermissionTicket, rawidToken string) (*RPT, error) {
 	if pt.InitialOption != nil && c.authZ.Issuer != pt.InitialOption.AuthZSrv {
 		return nil, fmt.Errorf("この許可チケットの発行者に対するクライアントではない")
 	}
-	tok, err := c.Config(pt.Ticket, rawidToken).Token(context.Background())
+	tok, err := c.config(pt.Ticket, rawidToken).Token(context.Background())
 	if err != nil {
+		// Error 内容が UMA Grant Protocol におけるエラーであれば、エラーをその型に変換する
 		if err, ok := err.(*oauth2.RetrieveError); ok {
 			ee := new(ReqRPTError)
 			if err := json.Unmarshal(err.Body, ee); err != nil {
@@ -111,11 +120,12 @@ func (c *cli) ReqRPT(pt *PermissionTicket, rawidToken string) (*RPT, error) {
 		}
 		return nil, err
 	}
+	// RPT を返す
 	return &RPT{*tok}, nil
 }
 
-// InitialPermissionTicket は resp から PermissionTicket を抽出する
-func InitialPermissionTicket(resp *http.Response) (*PermissionTicket, error) {
+// initialPermissionTicket は resp から PermissionTicket を抽出する
+func initialPermissionTicket(resp *http.Response) (*PermissionTicket, error) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		return nil, fmt.Errorf("status code unmatched: expected 403 but %v", resp.StatusCode)
 	}

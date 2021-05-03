@@ -15,8 +15,8 @@ type Conf struct {
 
 // CAPConf は CAP その者の設定情報
 type CAPConf struct {
-	Contexts map[string][]string `json:"contexts"`
-	Openid   *Openid             `json:"openid"`
+	Contexts map[ctxType][]ctxScope `json:"contexts"`
+	Openid   *Openid                `json:"openid"`
 }
 
 // UMAConf は CAP で UMA ResSrv として振る舞うための設定情報
@@ -24,15 +24,17 @@ type UMAConf struct {
 	AuthZ        string `json:"authZ"`
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
+	RedirectURL  string `json:"redirect_url"`
 }
 
 func (c *UMAConf) to() *uma.ResSrvConf {
 	return &uma.ResSrvConf{
 		AuthZSrv: c.AuthZ,
-		ClientCred: struct {
-			ID     string
-			Secret string
-		}{c.ClientID, c.ClientSecret},
+		PATClient: struct {
+			ID          string
+			Secret      string
+			RedirectURL string
+		}{c.ClientID, c.ClientSecret, c.RedirectURL},
 	}
 }
 
@@ -69,7 +71,6 @@ func (c *Openid) to() *openid.Conf {
 // CAEPConf は CAP で CAEP Transmitter として振る舞うための設定情報
 type CAEPConf struct {
 	Metadata  Metadata `json:"metadata"`
-	Openid    Openid   `json:"openid"`
 	Receivers map[string]struct {
 		ClientID string `json:"client_id"`
 		Host     string `json:"host"`

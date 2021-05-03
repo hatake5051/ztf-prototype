@@ -58,7 +58,7 @@ func (v *verifier) Status(authHeader string, req *caep.ReqChangeOfStreamStatus) 
 type addsubverifier struct {
 	verifier
 	uma uma.ResSrv
-	db  resDB
+	db  CtxDBForUMAResSrv
 }
 
 func (v *addsubverifier) AddSub(authHeader string, req *caep.ReqAddSub) (recvID string, status *caep.StreamStatus, err error) {
@@ -68,12 +68,12 @@ func (v *addsubverifier) AddSub(authHeader string, req *caep.ReqAddSub) (recvID 
 		// RPT トークンがないということは .. ?
 		var reqs []uma.ResReqForPT
 		for ctxID, scopes := range req.ReqEventScopes {
-			res, err := v.db.Load(spagID, ctxID)
+			res, err := v.db.Load(SubAtCAP(spagID), ctxType(ctxID))
 			if err != nil {
 				continue
 			}
 			req := uma.ResReqForPT{
-				ID:     res.ID,
+				ID:     res.IDAtAuthZSrv,
 				Scopes: scopes,
 			}
 			reqs = append(reqs, req)

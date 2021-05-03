@@ -20,7 +20,8 @@
   "uma": {
     "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/context-share",
     "client_id": "cap1",
-    "client_secret": ""
+    "client_secret": "",
+    "redirect_url": "http://cap1.ztf-proto.k3.ipv6.mobi/uma/pat/callback"
   },
   "caep": {
     "metadata": {
@@ -37,12 +38,6 @@
       "add_subject_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/set/subject:add",
       "remove_subject_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/set/subject:remove",
       "verification_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/set/verify"
-    },
-    "openid": {
-      "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/context-share",
-      "rp_id": "cap1",
-      "rp_secret": "",
-      "redirect_url": "http://cap1.ztf-proto.k3.ipv6.mobi/uma/oidc/callback"
     },
     "receivers": {
       "rp1": {
