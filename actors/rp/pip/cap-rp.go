@@ -137,8 +137,13 @@ func (a *authNForCAEPRecv) setSub(session string, token openid.Token) error {
 	return nil
 }
 
-func (sub *subForCtx) toCAEP() string {
-	return sub.SpagID
+func (sub *subForCtx) toCAEP() *caep.EventSubject {
+	return &caep.EventSubject{
+		User: map[string]string{
+			"foramt": "opaque",
+			"opaque": sub.SpagID,
+		},
+	}
 }
 
 // CAEPRecvConf は CAEP の Receiver となるための設定情報
@@ -173,8 +178,8 @@ func (s *setAuthHeaders) ForConfig(r *http.Request) {
 	s.t.SetAuthHeader(r)
 }
 
-func (s *setAuthHeaders) ForSubAdd(spagID string, r *http.Request) {
-	rpt, err := s.uma.RPT(spagID)
+func (s *setAuthHeaders) ForSubAdd(sub *caep.EventSubject, r *http.Request) {
+	rpt, err := s.uma.RPT(sub.Identifier())
 	if err != nil {
 		return
 	}
@@ -182,7 +187,7 @@ func (s *setAuthHeaders) ForSubAdd(spagID string, r *http.Request) {
 }
 
 type caeprecv struct {
-	recv   caep.Recv
+	recv   caep.Rx
 	setCtx func(spagID string, c *ctx) error
 	uma    *umaClient
 }
@@ -218,31 +223,47 @@ func (cm *caeprecv) IsEnabledStatusFor(sub *subForCtx) error {
 }
 
 func (cm *caeprecv) AddSub(sub *subForCtx, req []reqCtx) error {
-	reqscopes := make(map[string][]string)
+	reqscopes := make(map[caep.EventType]struct {
+		EventID string            `json:"event_id"`
+		Scopes  []caep.EventScope `json:"scopes"`
+	})
 	for _, r := range req {
-		reqscopes[r.ID] = r.Scopes
+		et := caep.EventType(r.ID)
+
+		resIDs := map[caep.EventType]string{
+			"ctx-1": "",
+			"ctx-2": "",
+		}
+
+		var escopes []caep.EventScope
+		for _, s := range r.Scopes {
+			escopes = append(escopes, caep.EventScope(s))
+		}
+
+		reqscopes[et] = struct {
+			EventID string            `json:"event_id"`
+			Scopes  []caep.EventScope `json:"scopes"`
+		}{resIDs[et], escopes}
 	}
 	reqadd := &caep.ReqAddSub{
-		Sub: struct {
-			SubType string "json:\"subject_type\""
-			SpagID  string "json:\"spag_id\""
-		}{"spag", sub.toCAEP()},
+		Subject:        sub.toCAEP(),
 		ReqEventScopes: reqscopes,
 	}
 	err := cm.recv.AddSubject(reqadd)
 	if err == nil {
 		return nil
 	}
+	fmt.Printf("caeprecv.AddSub failed %#v\n", err)
 	e, ok := err.(caep.RecvError)
 	if !ok {
 		return err
 	}
 	if e.Code() == caep.RecvErrorCodeUnAuthorized {
 		resp := e.Option().(*http.Response)
-		if err := cm.uma.ExtractPermissionTicket(sub.toCAEP(), resp); err != nil {
+		if err := cm.uma.ExtractPermissionTicket(sub.toCAEP().Identifier(), resp); err != nil {
 			return err
 		}
-		if err := cm.uma.ReqRPT(sub); err != nil {
+		if err := cm.uma.ReqRPT(sub.toCAEP().Identifier()); err != nil {
 			return err
 		}
 		return cm.recv.AddSubject(reqadd)
@@ -259,12 +280,16 @@ func (cm *caeprecv) Recv(r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	spagID := event.Subject.SpagID
-	c := &ctx{
-		ID:          event.ID,
-		ScopeValues: event.Property,
+	sub := event.Subject
+	props := make(map[string]string)
+	for es, v := range event.Property {
+		props[string(es)] = v
 	}
-	return cm.setCtx(spagID, c)
+	c := &ctx{
+		ID:          string(event.Type),
+		ScopeValues: props,
+	}
+	return cm.setCtx(sub.Identifier(), c)
 }
 
 // UMAClientConf は CAP で UMAClint となるための設定情報
@@ -328,8 +353,8 @@ func (conf *UMAClientConf) new(db umaClientDB) (*umaClient, error) {
 
 type umaClientDB interface {
 	SetPermissionTicket(spagID string, ticket *uma.PermissionTicket) error
-	LoadPermissionTicket(sub *subForCtx) (*uma.PermissionTicket, error)
-	SetRPT(sub *subForCtx, tok *uma.RPT) error
+	LoadPermissionTicket(spagID string) (*uma.PermissionTicket, error)
+	SetRPT(spagID string, tok *uma.RPT) error
 	LoadRPT(spagID string) (*uma.RPT, error)
 }
 
@@ -355,8 +380,8 @@ func (u *umaClient) RPT(spagID string) (*uma.RPT, error) {
 }
 
 // ReqRPT はサブジェクトと紐づいた PermissionTicket を使って UMA 認可プロセスを開始する
-func (u *umaClient) ReqRPT(sub *subForCtx) error {
-	ticket, err := u.db.LoadPermissionTicket(sub)
+func (u *umaClient) ReqRPT(spagID string) error {
+	ticket, err := u.db.LoadPermissionTicket(spagID)
 	if err != nil {
 		return err
 	}
@@ -367,5 +392,5 @@ func (u *umaClient) ReqRPT(sub *subForCtx) error {
 		}
 		return err
 	}
-	return u.db.SetRPT(sub, tok)
+	return u.db.SetRPT(spagID, tok)
 }

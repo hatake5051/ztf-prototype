@@ -22,9 +22,9 @@ type SessionStoreForUMAResSrv interface {
 // UMAResSrv で使うコンテキストデータベース
 type CtxDBForUMAResSrv interface {
 	// Load は Sub と ctx を指定してそのコンテキストを受け取る
-	Load(SubAtCAP, ctxType) (*ctx, error)
+	Load(SubAtCAP, CtxType) (Ctx, error)
 	// SaveIDAtAuthZSrv は認可サーバが発行したリソースIDをコンテキストに紐づけて保存する
-	SaveIDAtAuthZSrv(SubAtCAP, ctxType, uma.ResID) error
+	SaveIDAtAuthZSrv(SubAtCAP, CtxType, uma.ResID) error
 }
 
 // newUMASrv は CAP における UMA リソースサーバ としての機能を提供する UMAResSrv を返す
@@ -112,7 +112,7 @@ func (u *umasrv) CRUD(w http.ResponseWriter, r *http.Request) {
 	// どのコンテキストを操作するか Query から読み取る
 	ct := r.FormValue("t")
 	// 今アクセスしているユーザのそのコンテキストの中身を取得する
-	ctx, err := u.ctxDB.Load(sub, ctxType(ct))
+	ctx, err := u.ctxDB.Load(sub, CtxType(ct))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("ctxType(%s) のコンテキストは管理していません", ct), http.StatusBadRequest)
 		return
@@ -126,17 +126,17 @@ func (u *umasrv) CRUD(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("CRUD(%s) %#v\n", method, ctx)
 	if method == http.MethodPost {
 		var scopes []string
-		for _, s := range ctx.Scopes {
+		for _, s := range ctx.Scopes() {
 			scopes = append(scopes, string(s))
 		}
 		res = &uma.Res{
-			Name:   ctx.Name,
+			Name:   ctx.Name(),
 			Scopes: scopes,
-			Type:   ctx.Type.UMAResType(),
+			Type:   ctx.Type().UMAResType(),
 		}
 	} else {
 		res = &uma.Res{
-			ID: ctx.IDAtAuthZSrv,
+			ID: ctx.IDAtAuthZSrv(),
 		}
 	}
 
@@ -164,7 +164,7 @@ func (u *umasrv) CRUD(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Printf("new res %#v\n", newres)
 	if method == http.MethodPost {
-		if err := u.ctxDB.SaveIDAtAuthZSrv(sub, ctxType(ct), newres.ID); err != nil {
+		if err := u.ctxDB.SaveIDAtAuthZSrv(sub, CtxType(ct), newres.ID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

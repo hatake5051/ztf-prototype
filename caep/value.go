@@ -3,7 +3,6 @@ package caep
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"mime"
 	"net/http"
@@ -13,87 +12,6 @@ import (
 
 // Transmitter は caep Transmitter の設定情報を表す
 type Transmitter struct {
-	Issuer                   string
-	JwksURI                  string
-	SupportedVersions        []string
-	DeliveryMethodsSupported []string
-	ConfigurationEndpoint    string
-	StatusEndpoint           string
-	AddSubjectEndpoint       string
-	RemoveSubjectEndpoint    string
-	VerificationEndpoint     string
-}
-
-// Write は w に t の内容をJSONエンコードして書き込む
-func (t *Transmitter) Write(w io.Writer) error {
-	j := &transmitterJSON{
-		Issuer:                   t.Issuer,
-		JwksURI:                  t.JwksURI,
-		SupportedVersions:        t.SupportedVersions,
-		DeliveryMethodsSupported: t.DeliveryMethodsSupported,
-		ConfigurationEndpoint:    t.ConfigurationEndpoint,
-		StatusEndpoint:           t.StatusEndpoint,
-		AddSubjectEndpoint:       t.AddSubjectEndpoint,
-		RemoveSubjectEndpoint:    t.RemoveSubjectEndpoint,
-		VerificationEndpoint:     t.VerificationEndpoint,
-	}
-	return json.NewEncoder(w).Encode(j)
-}
-
-// NewTransmitter は r から JSON を読み取って Transmitter にデコードする
-func NewTransmitter(r io.Reader) (*Transmitter, error) {
-	t := new(transmitterJSON)
-	if err := json.NewDecoder(r).Decode(t); err != nil {
-		return nil, err
-	}
-	tr := &Transmitter{
-		Issuer:                   t.Issuer,
-		JwksURI:                  t.JwksURI,
-		SupportedVersions:        t.SupportedVersions,
-		DeliveryMethodsSupported: t.DeliveryMethodsSupported,
-		ConfigurationEndpoint:    t.ConfigurationEndpoint,
-		StatusEndpoint:           t.StatusEndpoint,
-		AddSubjectEndpoint:       t.AddSubjectEndpoint,
-		RemoveSubjectEndpoint:    t.RemoveSubjectEndpoint,
-		VerificationEndpoint:     t.VerificationEndpoint,
-	}
-	return tr, nil
-}
-
-// NewTransmitterFetced は issuer の well-known から取得して Trasmitter を構築する
-func NewTransmitterFetced(issuer string) (*Transmitter, error) {
-	url, err := url.Parse(issuer)
-	if err != nil {
-		log.Printf("CAEP Transmitter の issuer url parse に失敗: %v\n", err)
-		return nil, err
-	}
-	url.Path = path.Join("/.well-known/sse-configuration", url.Path)
-	resp, err := http.Get(url.String())
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s", resp.Status)
-	}
-	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if err != nil {
-		return nil, err
-	}
-	if contentType != "application/json" {
-		return nil, fmt.Errorf("contentType unmached expected application/json but %s", contentType)
-	}
-	tr, err := NewTransmitter(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if tr.Issuer != issuer {
-		return nil, fmt.Errorf("caep: issuer did not match the issuer returned by provider, expected %q got %q", issuer, tr.Issuer)
-	}
-	return tr, nil
-}
-
-type transmitterJSON struct {
 	Issuer                   string   `json:"issuer"`
 	JwksURI                  string   `json:"jwks_uri"`
 	SupportedVersions        []string `json:"supported_versions"`
@@ -105,10 +23,51 @@ type transmitterJSON struct {
 	VerificationEndpoint     string   `json:"verification_endpoint"`
 }
 
+// NewTransmitter は caep transmitter の well-known から取得して Trasmitter を構築する
+func NewTransmitter(issuer string) (*Transmitter, error) {
+	// well-knoenw url を構築
+	url, err := url.Parse(issuer)
+	if err != nil {
+		log.Printf("CAEP Transmitter の issuer url parse に失敗: %v\n", err)
+		return nil, err
+	}
+	url.Path = path.Join("/.well-known/sse-configuration", url.Path)
+
+	// get method
+	resp, err := http.Get(url.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	// response error check
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s", resp.Status)
+	}
+	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, err
+	}
+	if contentType != "application/json" {
+		return nil, fmt.Errorf("contentType unmached expected application/json but %s", contentType)
+	}
+	// response parse
+	tx := new(Transmitter)
+	if err := json.NewDecoder(resp.Body).Decode(tx); err != nil {
+		return nil, err
+	}
+	if tx.Issuer != issuer {
+		return nil, fmt.Errorf("caep: issuer did not match the issuer returned by provider, expected %q got %q", issuer, tx.Issuer)
+	}
+	return tx, nil
+}
+
+// RxID は Receiver の識別子であり、 Transmitter が管理している
+type RxID string
+
 // Receiver は CAEP Transmitter が管理する Receiver 情報を表す
 type Receiver struct {
 	// ID は Transmitter における Receiver の識別子
-	ID string
+	ID RxID
 	// Host は Receiver のホスト名
 	Host string
 	// StreamConf は最も最近の Stream COnfig 情報を持つ
@@ -120,9 +79,10 @@ type StreamStatus struct {
 	// Status はそのユーザに対する Stream Status を表す
 	Status string `json:"status"`
 	// SpagID はユーザの識別子
-	SpagID string `json:"spag_id"`
+	Subject EventSubject `json:"subject"`
 	// EventScopes はそのユーザに対する Stream で提供されるコンテキストとそのスコープを表す
-	EventScopes map[string][]string `json:"events_scopes"`
+	// CAEP に対する独自拡張
+	EventScopes map[EventType][]EventScope `json:"events_scopes"`
 }
 
 // ReqChangeOfStreamStatus は CAEP Receiver が Stream Status 変更要求する時のリクエストを表す
@@ -192,66 +152,105 @@ func (c *StreamConfig) Update(n *StreamConfig) (ismodified bool) {
 // Stream にユーザが追加されることでそのユーザのコンテキストを受け取ることができる
 type ReqAddSub struct {
 	// Sub は Stream に追加したいユーザ情報を表す
-	Sub struct {
-		SubType string `json:"subject_type"`
-		SpagID  string `json:"spag_id"`
-	} `json:"subject"`
+	// この識別子を Tx は理解できないので、 ReqEventScopes にある EventID から
+	// Tx におけるこの Subject を識別する
+	Subject *EventSubject `json:"subject"`
 	// ReqEventScopes はどのコンテキストをどの粒度で求めるかを表す
-	ReqEventScopes map[string][]string `json:"events_scopes_requested"`
+	ReqEventScopes map[EventType]struct {
+		EventID string       `json:"event_id"`
+		Scopes  []EventScope `json:"scopes"`
+	} `json:"events_scopes_requested"`
 }
 
-// SSEEventClaim は Security Event Token のクレーム情報を表す
-type SSEEventClaim struct {
-	ID      string `json:"-"`
-	Subject struct {
-		SubType string `json:"subject_type"`
-		SpagID  string `json:"spag_id"`
-	} `json:"subject"`
-	Property map[string]string `json:"property"`
+// EventSubject は 誰に関する Event であるか表現する
+type EventSubject struct {
+	User   map[string]string `json:"user"`
+	Device map[string]string `json:"device,omitempty"`
 }
 
-// NewSETEventsClaimFromJson は JSON を SSEEventClaim に変換する
-func NewSETEventsClaimFromJson(v interface{}) (*SSEEventClaim, bool) {
-	v2, ok := v.(map[string]interface{})
+func (s *EventSubject) Identifier() string {
+	var format string
+	for k, v := range s.User {
+		if k == "format" {
+			format = v
+			break
+		}
+	}
+	return s.User[format]
+}
+
+// EventType は Event の種類を表現する
+type EventType string
+
+// EventScope は Event のスコープを表現する
+type EventScope string
+
+// EventClaim は Security Event Token 上でやり取りされる Event を表現する
+type Event struct {
+	Type     EventType
+	Subject  *EventSubject
+	Property map[EventScope]string
+}
+
+func NewEventFromJSON(events interface{}) (e *Event, ok bool) {
+	es, ok := events.(map[string]interface{})
 	if !ok {
 		return nil, false
 	}
-	for k, v := range v2 {
-		v, ok := v.(map[string]interface{})
+	for t, e := range es {
+		e, ok := e.(map[string]interface{})
 		if !ok {
 			return nil, false
 		}
-		s, ok := v["subject"].(map[string]interface{})
-		if !ok {
-			return nil, false
-		}
-		p := make(map[string]string)
-		p2, ok := v["property"].(map[string]interface{})
-		if !ok {
-			return nil, false
-		}
-		for pk, pv := range p2 {
-			p[pk], ok = pv.(string)
+		sub := new(EventSubject)
+		prop := make(map[EventScope]string)
+		for k, v := range e {
+			if k == "subject" {
+				ss, ok := v.(map[string]interface{})
+				if !ok {
+					return nil, false
+				}
+				for k, v := range ss {
+					if k == "user" {
+						vv, ok := v.(map[string]string)
+						if !ok {
+							return nil, false
+						}
+						sub.User = vv
+
+					} else if k == "device" {
+						vv, ok := v.(map[string]string)
+						if !ok {
+							return nil, false
+						}
+						sub.Device = vv
+					}
+				}
+				continue
+			}
+			s, ok := v.(string)
 			if !ok {
 				return nil, false
 			}
+			prop[EventScope(k)] = s
 		}
-		return &SSEEventClaim{
-			ID: k,
-			Subject: struct {
-				SubType string "json:\"subject_type\""
-				SpagID  string "json:\"spag_id\""
-			}{s["subject_type"].(string), s["spag_id"].(string)},
-			Property: p,
+
+		return &Event{
+			Type:     EventType(t),
+			Subject:  sub,
+			Property: prop,
 		}, true
 	}
 	return nil, false
 }
 
-// ToClaim は SSEEventClaim を Secutiry Event Token の event ペイロードへ
-// 当てはめる時の反感を行う。このペイロードは ID をキーにしたマップ型である
-func (e *SSEEventClaim) ToClaim() map[string]SSEEventClaim {
-	return map[string]SSEEventClaim{
-		e.ID: *e,
+func (e *Event) ToClaim() map[string]map[string]interface{} {
+	a := make(map[string]interface{})
+	a["subject"] = e.Subject
+	for k, v := range e.Property {
+		a[string(k)] = v
+	}
+	return map[string]map[string]interface{}{
+		string(e.Type): a,
 	}
 }

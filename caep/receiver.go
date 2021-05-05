@@ -2,6 +2,7 @@ package caep
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -28,45 +29,70 @@ type RecvConf struct {
 // t は stream config/status endpoit の保護に使う OAuth-AccessToken を保持
 // uc は sub add endpoint の保護に使う UMA-RPT を保持
 // set は receive event を context に変換して保存する
-func (conf *RecvConf) New(authHeadersetter AuthHeaderSetter) Recv {
-	tr, err := NewTransmitterFetced(conf.Issuer)
+func (conf *RecvConf) New(authHeadersetter AuthHeaderSetter) Rx {
+	tr, err := NewTransmitter(conf.Issuer)
 	if err != nil {
 		panic(fmt.Sprintf("Transmitterの設定情報の取得に失敗 %v", err))
 	}
-	r := &Receiver{
-		Host: conf.Host,
-		StreamConf: &StreamConfig{
-			Delivery: struct {
-				DeliveryMethod string `json:"delivery_method"`
-				URL            string `json:"url"`
-			}{"https://schemas.openid.net/secevent/risc/delivery-method/push", conf.RecvEndpoint},
+	r := &recvConf{
+		data: Receiver{
+			Host: conf.Host,
+			StreamConf: &StreamConfig{
+				Delivery: struct {
+					DeliveryMethod string `json:"delivery_method"`
+					URL            string `json:"url"`
+				}{"https://schemas.openid.net/secevent/risc/delivery-method/push", conf.RecvEndpoint},
+			},
 		},
 	}
-	return &recv{
+	return &rx{
 		tr:           tr,
 		recv:         r,
 		setAuthHeder: authHeadersetter,
 	}
 }
 
-// Recv は caep.Receiver の働きをする
-type Recv interface {
+// Rx は caep.Receiver の働きをする
+type Rx interface {
 	// SetUpStream は StreamConfig を最新のものにして、更新も行う
 	SetUpStream(conf *StreamConfig) error
-	// ReadStreamStatus は Get /set/status/{spag_id} する
-	ReadStreamStatus(spagID string) (*StreamStatus, error)
+	// ReadStreamStatus は Subject に関する現在の Status を確認する
+	ReadStreamStatus(*EventSubject) (*StreamStatus, error)
 	// UpdateStreamStatus(status *StreamStatus) error
 	// AddSubject は POST /set/subjects:add する
 	AddSubject(*ReqAddSub) error
-	// Recv は コンテキストを受け取る
-	Recv(*http.Request) (*SSEEventClaim, error)
+	// Recv は イベントを受け取る
+	Recv(*http.Request) (*Event, error)
 }
 
 // AuthHeaderSetter は Receiver が Stream Mgmt API にアクセスする時のトークンを付与する
 // 付与することができない時はそのまま
 type AuthHeaderSetter interface {
 	ForConfig(r *http.Request)
-	ForSubAdd(spagID string, r *http.Request)
+	ForSubAdd(*EventSubject, *http.Request)
+}
+
+type ReceiverConf interface {
+	Load() (*Receiver, error)
+	Save(*Receiver) error
+}
+
+type recvConf struct {
+	data Receiver
+	m    sync.RWMutex
+}
+
+func (c *recvConf) Load() (*Receiver, error) {
+	c.m.RLock()
+	defer c.m.RUnlock()
+	return &c.data, nil
+}
+
+func (c *recvConf) Save(r *Receiver) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	c.data = *r
+	return nil
 }
 
 // RecvError は error を表す
@@ -90,27 +116,34 @@ const (
 	RecvErrorCodeNotFound
 )
 
-type recv struct {
+type rx struct {
 	// tr は caep.Transmitter の設定情報を含む
 	tr *Transmitter
-	// recv は Receiver の設定情報を持つ。Read-Write able
-	recv *Receiver
-	m    sync.RWMutex
+	// recv は Receiver の設定情報を持つ。
+	recv ReceiverConf
 	// recvOauth は stream config/status endpoit の保護に使う OAuth-AccessToken を保持
 	setAuthHeder AuthHeaderSetter
 }
 
-func (recv *recv) ReadStreamStatus(spagID string) (*StreamStatus, error) {
-	url, err := url.Parse(recv.tr.StatusEndpoint)
+func (rx *rx) ReadStreamStatus(sub *EventSubject) (*StreamStatus, error) {
+	// Event Subject を base64url encode して query に埋め込む
+	b, err := json.Marshal(sub)
 	if err != nil {
 		return nil, err
 	}
-	url.Path = path.Join(url.Path, spagID)
+	pidStr := base64.URLEncoding.EncodeToString(b)
+
+	url, err := url.Parse(rx.tr.StatusEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	url.Path = path.Join(url.Path, pidStr)
+
 	req, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-	recv.setAuthHeder.ForConfig(req)
+	rx.setAuthHeder.ForConfig(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -129,32 +162,38 @@ func (recv *recv) ReadStreamStatus(spagID string) (*StreamStatus, error) {
 	return s, nil
 }
 
-func (recv *recv) SetUpStream(conf *StreamConfig) error {
-	recv.m.Lock()
-	defer recv.m.Unlock()
-	srvSavedConf, err := recv.ReadStream()
+func (rx *rx) SetUpStream(conf *StreamConfig) error {
+	srvSavedConf, err := rx.ReadStream()
 	if err != nil {
 		return err
 	}
-	_ = recv.recv.StreamConf.Update(srvSavedConf)
-	_ = recv.recv.StreamConf.Update(conf)
-	ismodified := srvSavedConf.Update(recv.recv.StreamConf)
+	recv, err := rx.recv.Load()
+	if err != nil {
+		return err
+	}
+	_ = recv.StreamConf.Update(srvSavedConf)
+	_ = recv.StreamConf.Update(conf)
+	ismodified := srvSavedConf.Update(recv.StreamConf)
 	if ismodified {
-		newSrvSavedConf, err := recv.UpdateStream(recv.recv.StreamConf)
+		newSrvSavedConf, err := rx.UpdateStream(recv.StreamConf)
 		if err != nil {
 			return err
 		}
-		_ = recv.recv.StreamConf.Update(newSrvSavedConf)
+		_ = recv.StreamConf.Update(newSrvSavedConf)
 	}
+	if err := rx.recv.Save(recv); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func (recv *recv) ReadStream() (*StreamConfig, error) {
-	req, err := http.NewRequest("GET", recv.tr.ConfigurationEndpoint, nil)
+func (rx *rx) ReadStream() (*StreamConfig, error) {
+	req, err := http.NewRequest("GET", rx.tr.ConfigurationEndpoint, nil)
 	if err != nil {
 		return nil, err
 	}
-	recv.setAuthHeder.ForConfig(req)
+	rx.setAuthHeder.ForConfig(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -173,17 +212,17 @@ func (recv *recv) ReadStream() (*StreamConfig, error) {
 	return c, nil
 }
 
-func (recv *recv) UpdateStream(conf *StreamConfig) (*StreamConfig, error) {
+func (rx *rx) UpdateStream(conf *StreamConfig) (*StreamConfig, error) {
 	bodyJSON, err := json.Marshal(conf)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest("POST", recv.tr.ConfigurationEndpoint, bytes.NewBuffer(bodyJSON))
+	req, err := http.NewRequest("POST", rx.tr.ConfigurationEndpoint, bytes.NewBuffer(bodyJSON))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Add("Content-Type", "application/json")
-	recv.setAuthHeder.ForConfig(req)
+	rx.setAuthHeder.ForConfig(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -202,17 +241,17 @@ func (recv *recv) UpdateStream(conf *StreamConfig) (*StreamConfig, error) {
 	return &c, nil
 }
 
-func (recv *recv) AddSubject(reqadd *ReqAddSub) error {
+func (rx *rx) AddSubject(reqadd *ReqAddSub) error {
 	bodyJSON, err := json.Marshal(reqadd)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", recv.tr.AddSubjectEndpoint, bytes.NewBuffer(bodyJSON))
+	req, err := http.NewRequest("POST", rx.tr.AddSubjectEndpoint, bytes.NewBuffer(bodyJSON))
 	if err != nil {
 		return err
 	}
 	req.Header.Add("Content-Type", "application/json")
-	recv.setAuthHeder.ForSubAdd(reqadd.Sub.SpagID, req)
+	rx.setAuthHeder.ForSubAdd(reqadd.Subject, req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
@@ -229,9 +268,7 @@ func (recv *recv) AddSubject(reqadd *ReqAddSub) error {
 	return nil
 }
 
-func (recv *recv) Recv(r *http.Request) (*SSEEventClaim, error) {
-	recv.m.RLock()
-	defer recv.m.RUnlock()
+func (rx *rx) Recv(r *http.Request) (*Event, error) {
 	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
 		return nil, err
@@ -244,16 +281,20 @@ func (recv *recv) Recv(r *http.Request) (*SSEEventClaim, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := jwt.Verify(tok, jwt.WithAudience(recv.recv.Host), jwt.WithIssuer(recv.tr.Issuer)); err != nil {
+	recv, err := rx.recv.Load()
+	if err != nil {
+		return nil, err
+	}
+	if err := jwt.Verify(tok, jwt.WithAudience(recv.Host), jwt.WithIssuer(rx.tr.Issuer)); err != nil {
 		return nil, err
 	}
 	v, ok := tok.Get("events")
 	if !ok {
-		return nil, fmt.Errorf("送られてきたSETに events property がない")
+		return nil, fmt.Errorf("送られてきたSETに events がない")
 	}
-	e, ok := NewSETEventsClaimFromJson(v)
+	e, ok := NewEventFromJSON(v)
 	if !ok {
-		return nil, fmt.Errorf("送られてきたSET events property のパースに失敗")
+		return nil, fmt.Errorf("送られてきたSET events (%#v) のパースに失敗 ", v)
 	}
 	return e, nil
 }

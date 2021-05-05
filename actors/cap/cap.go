@@ -2,7 +2,6 @@ package cap
 
 import (
 	"fmt"
-	"mime"
 	"net/http"
 	"sync"
 
@@ -11,8 +10,6 @@ import (
 	"github.com/hatake5051/ztf-prototype/caep"
 	"github.com/hatake5051/ztf-prototype/openid"
 	"github.com/hatake5051/ztf-prototype/uma"
-	"github.com/lestrrat-go/jwx/jwa"
-	"github.com/lestrrat-go/jwx/jwt"
 )
 
 // New は CAP のサーバを構築する
@@ -22,54 +19,69 @@ func (c *Conf) New() *mux.Router {
 		sessions.NewCookieStore([]byte("super-secret-key")),
 	}
 
+	// CAP と RP 間での Pseudonym ID を管理する
+	pid := &pidtranslater{}
+
 	// CAP でのコンテキストデータベースを構築
 	var db CtxDB
-	var ctxs []ctxType
-	ctxBase := map[ctxType]ctx{}
+	var ctxs []CtxType
+	ctxBase := map[CtxType]ctx{}
 	for ctxType, scopes := range c.CAP.Contexts {
 		ctxs = append(ctxs, ctxType)
+		scopeValue := make(map[CtxScope]string)
+		for _, cs := range scopes {
+			scopeValue[cs] = fmt.Sprintf("%s:init", cs)
+		}
 		ctxBase[ctxType] = ctx{
-			Type:   ctxType,
-			Scopes: scopes,
+			t:           ctxType,
+			scopes:      scopes,
+			scopeValues: scopeValue,
 		}
 	}
 	db = &ctxDB{
 		all:     ctxs,
 		ctxBase: ctxBase,
+		pid:     pid,
 	}
 
 	// CAP のUMAリソースサーバ 機能を構築
 	u := c.UMA.to().New(&ressrvDB{})
 	us := newUMASrv(u, db, store)
 
-	// CAEP Receiver を構築
+	// CAEP Transmitter を構築
+	// CAEP Transmitter で使う Verifier
 	jwtURL := "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/context-share/protocol/openid-connect/certs"
 	v := &addsubverifier{
 		verifier{jwtURL},
 		u,
-		db,
+		pid,
 	}
-	recvRepo := &trStreamDB{db: make(map[string]caep.Receiver)}
+	// CAEP Transmitter で使う RxRepo
+	recvRepo := &trStreamDB{db: make(map[caep.RxID]caep.Receiver)}
 	var eventsupported []string
 	for ct := range c.CAP.Contexts {
 		eventsupported = append(eventsupported, string(ct))
 	}
-	for recvID, v := range c.CAEP.Receivers {
+	for rxID, rx := range c.CAEP.Receivers {
 		recvRepo.Save(&caep.Receiver{
-			ID:   recvID,
-			Host: v.Host,
+			ID:   caep.RxID(rxID),
+			Host: rx.Host,
 			StreamConf: &caep.StreamConfig{
 				Iss:             c.CAEP.Metadata.Issuer,
-				Aud:             []string{v.Host},
+				Aud:             []string{rx.Host},
 				EventsSupported: eventsupported,
 			},
 		})
 	}
+
+	// CAEP Transmitter で使う SubStatusRepo
+	statusRepo := &trStatusDB{db: make(map[caep.RxID]map[string]caep.StreamStatus)}
+
+	// caep.RxRepo をみたし、かつコンテキストを配送する際に便利なデータを保存する
 	recvs := &recvs{
 		inner: recvRepo,
-		db:    make(map[string][]string),
+		db:    make(map[CtxType][]caep.RxID),
 	}
-	statusRepo := &trStatusDB{db: make(map[string]map[string]caep.StreamStatus)}
 
 	// TODO: caep を直すのは後で
 	tmp := make(map[string][]string)
@@ -82,8 +94,9 @@ func (c *Conf) New() *mux.Router {
 	}
 	d := &distributer{
 		inner: statusRepo,
-		ctxs:  tmp,
 		recvs: recvs,
+		ctxs:  db,
+		pid:   pid,
 	}
 	tr := c.CAEP.to().New(recvs, d, v)
 	d.tr = tr
@@ -98,7 +111,7 @@ func (c *Conf) New() *mux.Router {
 	tr.Router(r)
 
 	r.Handle("/", cap)
-	r.HandleFunc("/ctx/recv", cap.Recv)
+	// r.HandleFunc("/ctx/recv", cap.Recv)
 	r.HandleFunc("/oidc/callback", cap.OIDCCallback)
 	r.Use(cap.OIDCMW)
 	r.HandleFunc("/list", cap.CtxList)
@@ -123,8 +136,9 @@ type SessionStore interface {
 // CtxDB は CAP のコンテキストデータベースとして機能する
 type CtxDB interface {
 	CtxDBForUMAResSrv
+	CtxDBForDistributer
 	// All は管理対象のコンテキスト一覧を返す
-	All() []ctxType
+	All() []CtxType
 }
 
 type cap struct {
@@ -149,8 +163,12 @@ func (c *cap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *cap) OIDCMW(next http.Handler) http.Handler {
+	protectedPathList := []string{
+		"/", "/list", "/uma/list", "/uma/ctx",
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/oidc/callback" || r.URL.Path == "/ctx/recv" {
+		if !contains(protectedPathList, r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -161,6 +179,15 @@ func (c *cap) OIDCMW(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func contains(src []string, target string) bool {
+	for _, s := range src {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *cap) OIDCCallback(w http.ResponseWriter, r *http.Request) {
@@ -177,34 +204,34 @@ func (c *cap) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, c.store.LoadRedirectBack(r), http.StatusFound)
 }
 
-func (c *cap) Recv(w http.ResponseWriter, r *http.Request) {
-	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if contentType != "application/secevent+jwt" {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+// func (c *cap) Recv(w http.ResponseWriter, r *http.Request) {
+// 	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	if contentType != "application/secevent+jwt" {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	tok, err := jwt.Parse(r.Body, jwt.WithVerify(jwa.HS256, []byte("for-agent-sending")))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	v, ok := tok.Get("events")
-	if !ok {
-		http.Error(w, "送られてきたSETに events property がない", http.StatusInternalServerError)
-		return
-	}
-	e, ok := caep.NewSETEventsClaimFromJson(v)
-	if !ok {
-		http.Error(w, "送られてきたSET events property のパースに失敗", http.StatusInternalServerError)
-		return
-	}
-	c.distr.RecvAndDistribute(e)
-}
+// 	tok, err := jwt.Parse(r.Body, jwt.WithVerify(jwa.HS256, []byte("for-agent-sending")))
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	v, ok := tok.Get("events")
+// 	if !ok {
+// 		http.Error(w, "送られてきたSETに events property がない", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	e, ok := caep.NewSETEventsClaimFromJson(v)
+// 	if !ok {
+// 		http.Error(w, "送られてきたSET events property のパースに失敗", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	c.distr.RecvAndDistribute(e)
+// }
 
 func (c *cap) CtxList(w http.ResponseWriter, r *http.Request) {
 	name, _ := c.store.PreferredName(r)
@@ -223,7 +250,7 @@ func (c *cap) CtxList(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s += fmt.Sprintf("[何らかのエラーが発生] %#v", err)
 		}
-		if c.IDAtAuthZSrv != "" {
+		if c.IDAtAuthZSrv() != uma.ResID("") {
 			s += fmt.Sprintf(`されています。 => <a href="/uma/ctx?t=%s">詳細を見る</a>`, ctxType)
 		} else {
 			s += `されていません。=> <form action="/uma/ctx" method="POST">`
@@ -241,6 +268,8 @@ func (c *cap) CtxList(w http.ResponseWriter, r *http.Request) {
 type sessionStoreForCAP struct {
 	store sessions.Store
 }
+
+var _ SessionStore = &sessionStoreForCAP{}
 
 func (s *sessionStoreForCAP) IdentifySubject(r *http.Request) (SubAtCAP, error) {
 	session, err := s.store.Get(r, "CAP_AUTHN")
@@ -306,50 +335,6 @@ func (s *sessionStoreForCAP) SetRedirectBack(r *http.Request, w http.ResponseWri
 	return nil
 }
 
-type ctxDB struct {
-	all     []ctxType       // all ctxTypes
-	ctxBase map[ctxType]ctx // ctxType -> ctx のベース
-	db      sync.Map        // ctxType + sub -> ctx
-}
-
-func (db *ctxDB) Load(sub SubAtCAP, ct ctxType) (*ctx, error) {
-	key := string(ct) + ":" + string(sub)
-	v, ok := db.db.Load(key)
-	fmt.Printf("Loaded %#v\n", v)
-	if !ok {
-		ctx := db.ctxBase[ct]
-		ctx.Name = key
-		fmt.Printf("Aaaa %#v\n", ctx)
-		db.db.Store(key, ctx)
-		return &ctx, nil
-	}
-	c, ok := v.(ctx)
-	if !ok {
-		return nil, fmt.Errorf("invalid")
-	}
-	return &c, nil
-}
-
-func (db *ctxDB) SaveIDAtAuthZSrv(sub SubAtCAP, ct ctxType, idAtAuthZSrv uma.ResID) error {
-	key := string(ct) + ":" + string(sub)
-	v, ok := db.db.Load(key)
-	if !ok {
-		return fmt.Errorf("not found")
-	}
-	c, ok := v.(ctx)
-	if !ok {
-		return fmt.Errorf("not found")
-	}
-	c.IDAtAuthZSrv = idAtAuthZSrv
-	fmt.Printf("aaa %#v\n", c)
-	db.db.Store(key, c)
-	return nil
-}
-
-func (db *ctxDB) All() []ctxType {
-	return db.all
-}
-
 // ressrvDB は UMAリソースサーバ として機能する際の uma.ResSrvDB を実装する
 type ressrvDB struct {
 	// // patdb は SubAtResSrv をキーとして PAT を保存する
@@ -357,6 +342,8 @@ type ressrvDB struct {
 	// // statedb は OAuth2.0 state をキーとして SubAtResSrv を保存数r
 	statedb sync.Map
 }
+
+var _ uma.ResSrvDB = &ressrvDB{}
 
 func (db *ressrvDB) LoadPAT(sub uma.SubAtResSrv) (*uma.PAT, error) {
 	v, ok := db.patdb.Load(string(sub))
@@ -407,4 +394,46 @@ func (db *ressrvDB) LoadAndDeleteOAuthState(state string) (uma.SubAtResSrv, erro
 		return uma.SubAtResSrv(""), fmt.Errorf("invalid state = %s", state)
 	}
 	return id, nil
+}
+
+type pidtranslater struct {
+	subToResID, resIDToSub, rxIDAndEsubToResID, resIDAndRxIDToESub sync.Map
+}
+
+var _ SubPIDTranslater = &pidtranslater{}
+
+func (pid *pidtranslater) Identify(esub *caep.EventSubject, rxID caep.RxID) (SubAtCAP, error) {
+	v, ok := pid.rxIDAndEsubToResID.Load(fmt.Sprintf("%s:%s", rxID, esub.Identifier()))
+	if !ok {
+		return SubAtCAP(""), fmt.Errorf("resID が見つからなかった esub:%v, rxID: %v", esub, rxID)
+	}
+	resID := v.(uma.ResID)
+	v, ok = pid.resIDToSub.Load(resID)
+	if !ok {
+		return SubAtCAP(""), fmt.Errorf("SubAtCAP が見つからなかった resID: %v", resID)
+	}
+	return v.(SubAtCAP), nil
+}
+
+func (pid *pidtranslater) Translate(sub SubAtCAP, rxID caep.RxID) (*caep.EventSubject, error) {
+	v, ok := pid.subToResID.Load(sub)
+	if !ok {
+		return nil, fmt.Errorf("resID が見つからなかった SubAtCAP: %s", sub)
+	}
+	resID := v.(uma.ResID)
+	v, ok = pid.resIDAndRxIDToESub.Load(fmt.Sprintf("%s:%s", resID, rxID))
+	if !ok {
+		return nil, fmt.Errorf("EventSubject が見つからんかった SubAtCAP: %s, ResID: %s", sub, resID)
+	}
+	return v.(*caep.EventSubject), nil
+}
+func (pid *pidtranslater) SaveResID(sub SubAtCAP, resID uma.ResID) error {
+	pid.subToResID.Store(sub, resID)
+	pid.resIDToSub.Store(resID, sub)
+	return nil
+}
+func (pid *pidtranslater) BindResIDToPID(resID uma.ResID, rxID caep.RxID, esub *caep.EventSubject) error {
+	pid.rxIDAndEsubToResID.Store(fmt.Sprintf("%s:%s", rxID, esub.Identifier()), resID)
+	pid.resIDAndRxIDToESub.Store(fmt.Sprintf("%s:%s", resID, rxID), esub)
+	return nil
 }

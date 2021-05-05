@@ -223,9 +223,9 @@ func (db *umaClientDBimpl) SetPermissionTicket(spagID string, ticket *uma.Permis
 	return db.r.Save(db.keyPT(spagID), buf.Bytes())
 }
 
-func (db *umaClientDBimpl) LoadPermissionTicket(sub *subForCtx) (*uma.PermissionTicket, error) {
+func (db *umaClientDBimpl) LoadPermissionTicket(spagID string) (*uma.PermissionTicket, error) {
 	var pt uma.PermissionTicket
-	b, err := db.r.Load(db.keyPT(sub.SpagID))
+	b, err := db.r.Load(db.keyPT(spagID))
 	if err != nil {
 		return nil, err
 	}
@@ -236,12 +236,12 @@ func (db *umaClientDBimpl) LoadPermissionTicket(sub *subForCtx) (*uma.Permission
 	return &pt, err
 
 }
-func (db *umaClientDBimpl) SetRPT(sub *subForCtx, tok *uma.RPT) error {
+func (db *umaClientDBimpl) SetRPT(spagID string, tok *uma.RPT) error {
 	buf := bytes.NewBuffer(nil)
 	if err := gob.NewEncoder(buf).Encode(tok); err != nil {
 		return nil
 	}
-	return db.r.Save(db.keyRPT(sub.SpagID), buf.Bytes())
+	return db.r.Save(db.keyRPT(spagID), buf.Bytes())
 }
 func (db *umaClientDBimpl) LoadRPT(spagID string) (*uma.RPT, error) {
 	var rpt uma.RPT

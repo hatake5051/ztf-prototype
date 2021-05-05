@@ -15,7 +15,7 @@ type Conf struct {
 
 // CAPConf は CAP その者の設定情報
 type CAPConf struct {
-	Contexts map[ctxType][]ctxScope `json:"contexts"`
+	Contexts map[CtxType][]CtxScope `json:"contexts"`
 	Openid   *Openid                `json:"openid"`
 }
 
