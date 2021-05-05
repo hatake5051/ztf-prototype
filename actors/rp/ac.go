@@ -29,13 +29,13 @@ func (c *ACConf) New(prefix string) AC {
 		panic(fmt.Sprintf("PDP の構成に失敗 %v", err))
 	}
 	ctrl := controller.New(pip, pdp)
-	idp := c.PIPConf.IssuerList[0]
+	idpList := c.PIPConf.IssuerList
 	var capList []string
 	for k, _ := range c.PIPConf.CAP2RP {
 		capList = append(capList, k)
 	}
 	store := sessions.NewCookieStore([]byte("super-secret-key"))
-	pep := pep.New(prefix, idp, capList, ctrl, store, &helper{})
+	pep := pep.New(prefix, idpList, capList, ctrl, store, &helper{})
 	return pep
 }
 

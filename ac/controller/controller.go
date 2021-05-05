@@ -13,12 +13,18 @@ type Controller interface {
 	// AskForAuthorization は PEP が PDP に認可判断を尋ねる
 	// ユーザの識別がまだ、認証がまだ、コンテキストの取得がまだの場合などはエラーを返す
 	AskForAuthorization(session string, res ac.Resource, a ac.Action) error
-	// SubAgent は idp のための OpenID Connect RP として振る舞うエージェントを返す
-	// PEP はこのエージェントを ZTF の RP エンドポイントに配備する
-	SubAgent(idp string) (pip.AuthNAgent, error)
-	// CtxAgent は cap のための CAEP RP として振る舞うエージェントを返す
-	// PEP はこのエージェントを ZTF の RP エンドポイントに配備する
-	CtxAgent(cap string) (pip.CtxAgent, error)
+	// AuthNAgent は Controller の代わりにユーザを認証するエージェントを返す。
+	// idp に IdP の URL を設定することで使用する IdP を選択できる
+	// このエージェントは OpenID Connect RP としてユーザの認証結果を受け取る。
+	// 受け取った ID Token は PIP に保存され、セッションと紐付けられて管理される
+	AuthNAgent(idp string) (pip.AuthNAgent, error)
+	// CtxAgent は Controller の代わりにコンテキストを収集するエージェントを返す
+	// このエージェントは CAP から CAEP Receiver としてコンテキストを受け取る。
+	// 受け取ったコンテキストは PIP に保存され、ユーザと紐付けられて管理される
+	// さらに、設定に応じて CAP へ CAEP Transmitter としてコンテキストを提供する。
+	// CAEP Receiver としてのみ機能する場合は pip.RxCtxAgent を、
+	// CAEP Transmitter としても機能する場合は pip.TxRxCtxAgent を返り値は満たす
+	CtxAgent(cap string) (interface{}, error)
 }
 
 // New は PIP と PDP を受け取って Controller を構成する
@@ -69,11 +75,11 @@ func (c *ctrl) AskForAuthorization(session string, res ac.Resource, a ac.Action)
 	return c.PDP.Decision(sub, res, a, ctxs)
 }
 
-func (c *ctrl) SubAgent(idp string) (pip.AuthNAgent, error) {
+func (c *ctrl) AuthNAgent(idp string) (pip.AuthNAgent, error) {
 	return c.PIP.SubjectAuthNAgent(idp)
 }
 
-func (c *ctrl) CtxAgent(cap string) (pip.CtxAgent, error) {
+func (c *ctrl) CtxAgent(cap string) (interface{}, error) {
 	return c.PIP.ContextAgent(cap)
 }
 

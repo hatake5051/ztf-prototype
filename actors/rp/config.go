@@ -94,6 +94,7 @@ func (c *CtxPIP) to() *pip.CtxPIPConf {
 	for k, v := range c.CAPToRP {
 		tmp[k] = v.to()
 	}
+
 	return &pip.CtxPIPConf{
 		CtxID2CAP: c.CtxToCAP,
 		CAP2RP:    tmp,
@@ -101,27 +102,12 @@ func (c *CtxPIP) to() *pip.CtxPIPConf {
 }
 
 type CAPRP struct {
-	AuthN *AuthNForCAEPRecv `json:"authN"`
-	Recv  *Recv             `json:"recv"`
+	Recv *Recv `json:"recv"`
 }
 
 func (c *CAPRP) to() *pip.CAPRPConf {
 	return &pip.CAPRPConf{
-		AuthN: c.AuthN.to(),
-		Recv:  c.Recv.to(),
-	}
-}
-
-// AuthNForCAEPRecvConf は CAEP の Receriver でサブジェクト認証を管理するための設定情報
-type AuthNForCAEPRecv struct {
-	CAPName string  `json:"cap"`
-	OIDCRP  *OIDCRP `json:"rp_config"`
-}
-
-func (c *AuthNForCAEPRecv) to() *pip.AuthNForCAEPRecvConf {
-	return &pip.AuthNForCAEPRecvConf{
-		CAPName: c.CAPName,
-		OIDCRP:  c.OIDCRP.to(),
+		Recv: c.Recv.to(),
 	}
 }
 

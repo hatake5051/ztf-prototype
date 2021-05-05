@@ -17,14 +17,14 @@ type Action interface {
 
 // Context はアクセス要求に関するアクセス判断に用いられる情報を表す
 type Context interface {
-	ID() string
+	Type() string
 	// Scopes() []string
 	ScopeValues() map[string]string
 }
 
 // ReqContext はアクセス要求の判断に必要なコンテキスト要求を表す
 type ReqContext interface {
-	ID() string
+	Type() string
 	Scopes() []string
 }
 

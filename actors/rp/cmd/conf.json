@@ -20,15 +20,6 @@
       },
       "cap_to_rp": {
         "http://cap1.ztf-proto.k3.ipv6.mobi": {
-          "authN": {
-            "cap": "http://cap1.ztf-proto.k3.ipv6.mobi",
-            "rp_config": {
-              "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/context-share",
-              "client_id": "rp1",
-              "client_secret": "",
-              "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/callback"
-            }
-          },
           "recv": {
             "caep": {
               "host": "http://rp1.ztf-proto.k3.ipv6.mobi",

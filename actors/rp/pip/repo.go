@@ -152,15 +152,15 @@ type ctxDBimple struct {
 
 var _ ctxDB = &ctxDBimple{}
 
-func (db *ctxDBimple) key(spagID string, ctxID string) string {
-	return db.r.KeyPrefix() + ":" + db.keyModifier + ":" + spagID + ":" + ctxID
+func (db *ctxDBimple) key(sub *subForCtx, ct ctxType) string {
+	return db.r.KeyPrefix() + ":" + db.keyModifier + ":sub:" + sub.Identifier() + ":ct:" + string(ct)
 }
 
 func (db *ctxDBimple) Load(sub *subForCtx, req []reqCtx) ([]ctx, error) {
 	var ret []ctx
 	for _, r := range req {
 		var c ctx
-		b, err := db.r.Load(db.key(sub.SpagID, r.ID))
+		b, err := db.r.Load(db.key(sub, r.Type))
 		if err != nil {
 			continue
 		}
@@ -176,9 +176,22 @@ func (db *ctxDBimple) Load(sub *subForCtx, req []reqCtx) ([]ctx, error) {
 	return ret, nil
 }
 
-func (db *ctxDBimple) Set(spagID string, c *ctx) error {
+func (db *ctxDBimple) UMAResID(sub *subForCtx, ct ctxType) (uma.ResID, error) {
+	var c ctx
+	b, err := db.r.Load(db.key(sub, ct))
+	if err != nil {
+		return "", err
+	}
+	buf := bytes.NewBuffer(b)
+	if err := gob.NewDecoder(buf).Decode(&c); err != nil {
+		return "", err
+	}
+	return c.ResID, nil
+}
+
+func (db *ctxDBimple) Set(sub *subForCtx, c *ctx) error {
 	// 以前に登録したものがあるか
-	b, err := db.r.Load(db.key(spagID, c.ID))
+	b, err := db.r.Load(db.key(sub, c.Type))
 	if err == nil {
 		var prevCtx ctx
 		buf := bytes.NewBuffer(b)
@@ -197,7 +210,7 @@ func (db *ctxDBimple) Set(spagID string, c *ctx) error {
 	if err := gob.NewEncoder(buf).Encode(c); err != nil {
 		return err
 	}
-	return db.r.Save(db.key(spagID, c.ID), buf.Bytes())
+	return db.r.Save(db.key(sub, c.Type), buf.Bytes())
 }
 
 type umaClientDBimpl struct {
@@ -207,25 +220,25 @@ type umaClientDBimpl struct {
 
 var _ umaClientDB = &umaClientDBimpl{}
 
-func (db *umaClientDBimpl) keyPT(spagID string) string {
-	return db.r.KeyPrefix() + ":" + db.keyModifier + ":permissionticket:" + spagID
+func (db *umaClientDBimpl) keyPT(sub *subForCtx) string {
+	return db.r.KeyPrefix() + ":" + db.keyModifier + ":permissionticket:" + sub.Identifier()
 }
 
-func (db *umaClientDBimpl) keyRPT(spagID string) string {
-	return db.r.KeyPrefix() + ":" + db.keyModifier + ":rpt:" + spagID
+func (db *umaClientDBimpl) keyRPT(sub *subForCtx) string {
+	return db.r.KeyPrefix() + ":" + db.keyModifier + ":rpt:" + sub.Identifier()
 }
 
-func (db *umaClientDBimpl) SetPermissionTicket(spagID string, ticket *uma.PermissionTicket) error {
+func (db *umaClientDBimpl) SetPermissionTicket(sub *subForCtx, ticket *uma.PermissionTicket) error {
 	buf := bytes.NewBuffer(nil)
 	if err := gob.NewEncoder(buf).Encode(ticket); err != nil {
 		return nil
 	}
-	return db.r.Save(db.keyPT(spagID), buf.Bytes())
+	return db.r.Save(db.keyPT(sub), buf.Bytes())
 }
 
-func (db *umaClientDBimpl) LoadPermissionTicket(spagID string) (*uma.PermissionTicket, error) {
+func (db *umaClientDBimpl) LoadPermissionTicket(sub *subForCtx) (*uma.PermissionTicket, error) {
 	var pt uma.PermissionTicket
-	b, err := db.r.Load(db.keyPT(spagID))
+	b, err := db.r.Load(db.keyPT(sub))
 	if err != nil {
 		return nil, err
 	}
@@ -236,16 +249,16 @@ func (db *umaClientDBimpl) LoadPermissionTicket(spagID string) (*uma.PermissionT
 	return &pt, err
 
 }
-func (db *umaClientDBimpl) SetRPT(spagID string, tok *uma.RPT) error {
+func (db *umaClientDBimpl) SetRPT(sub *subForCtx, tok *uma.RPT) error {
 	buf := bytes.NewBuffer(nil)
 	if err := gob.NewEncoder(buf).Encode(tok); err != nil {
 		return nil
 	}
-	return db.r.Save(db.keyRPT(spagID), buf.Bytes())
+	return db.r.Save(db.keyRPT(sub), buf.Bytes())
 }
-func (db *umaClientDBimpl) LoadRPT(spagID string) (*uma.RPT, error) {
+func (db *umaClientDBimpl) LoadRPT(sub *subForCtx) (*uma.RPT, error) {
 	var rpt uma.RPT
-	b, err := db.r.Load(db.keyRPT(spagID))
+	b, err := db.r.Load(db.keyRPT(sub))
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,8 @@ package pip
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 
@@ -11,7 +13,6 @@ import (
 	"github.com/hatake5051/ztf-prototype/uma"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
-	"github.com/lestrrat-go/jwx/jwt/openid"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -21,22 +22,21 @@ import (
 // CAP に stream を設定するために OAuth 認可を行う
 // CAP に subject を登録するために UMA 認可を行う
 type CAPRPConf struct {
-	AuthN *AuthNForCAEPRecvConf
-	Recv  *CAEPRecvConf
+	Recv *CAEPRecvConf
 }
 
 // new は CAPRP を ctxManager implements する
 func (conf *CAPRPConf) new(sm smForCtxManager, db ctxDB, umaClientDB umaClientDB) (ctxManager, error) {
-	sm1 := conf.AuthN.new(sm)
-	crp := &caprp{
-		sm: sm1,
-		db: db,
-	}
-	recv1, err := conf.Recv.new(umaClientDB, crp.setCtx)
+	recv, err := conf.Recv.new(umaClientDB, db)
 	if err != nil {
 		return nil, err
 	}
-	crp.recv = recv1
+	crp := &caprp{
+		sm:   sm,
+		db:   db,
+		recv: recv,
+	}
+
 	return crp, nil
 }
 
@@ -44,7 +44,7 @@ func (conf *CAPRPConf) new(sm smForCtxManager, db ctxDB, umaClientDB umaClientDB
 // cap から ctx を収集する
 // TODO さらに own domain で収集した ctx を cap へ提供する
 type caprp struct {
-	sm   *authNForCAEPRecv
+	sm   smForCtxManager
 	recv *caeprecv
 	db   ctxDB
 }
@@ -55,10 +55,20 @@ func (cm *caprp) Get(session string, req []reqCtx) ([]ctx, error) {
 		return nil, err
 	}
 	// subject for context を session から取得
-	sub, err := cm.sm.GetSub(session)
+	var sub *subForCtx
+	var err error
+	sub, err = cm.sm.Load(session)
 	if err != nil {
-		// err は pip.Error(未認証) を満たす場合あり
-		return nil, err
+		// // subForCtx をランダムに生成して保存
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return nil, err
+		}
+		pid := base64.URLEncoding.EncodeToString(b)
+		sub = &subForCtx{pid, ""}
+		if err := cm.sm.Set(session, sub); err != nil {
+			return nil, err
+		}
 	}
 	// subject の stream での status を得る
 	if err := cm.recv.IsEnabledStatusFor(sub); err != nil {
@@ -78,72 +88,8 @@ func (cm *caprp) Get(session string, req []reqCtx) ([]ctx, error) {
 	return ctxs, nil
 }
 
-func (cm *caprp) Agent() (acpip.CtxAgent, error) {
-	return &ctxagent{
-		cm.sm.Agent(),
-		cm.recv.Recv,
-	}, nil
-}
-
-func (cm *caprp) setCtx(spagID string, c *ctx) error {
-	fmt.Printf("caeprecv spagid:%s context:%v  \n", spagID, c)
-	return cm.db.Set(spagID, c)
-}
-
-// AuthNForCAEPRecvConf は CAEP の Receriver でサブジェクト認証を管理するための設定情報
-type AuthNForCAEPRecvConf struct {
-	CAPName string
-	OIDCRP  *ztfopenid.Conf
-}
-
-func (c *AuthNForCAEPRecvConf) new(sm smForCtxManager) *authNForCAEPRecv {
-	return &authNForCAEPRecv{c.CAPName, sm, c.OIDCRP}
-}
-
-// authNForCAEPRecv は 受け取りたいコンテキストのサブジェクトの認証を担う
-// またセッションを管理する
-type authNForCAEPRecv struct {
-	capName    string
-	sm         smForCtxManager
-	oidcrpConf *ztfopenid.Conf
-}
-
-// GetSub は session に紐づくサブジェクトがいればそれを返す。
-// session と紐づくサブジェクトがいなければ未認証エラーを返す
-func (a *authNForCAEPRecv) GetSub(session string) (*subForCtx, error) {
-	// subject for context を session から取得
-	sub, err := a.sm.Load(session)
-	if err != nil {
-		// 認証できてないことをエラーとして表現
-		return nil, newEO(err, acpip.SubjectForCtxUnAuthenticated, a.capName)
-	}
-	return sub, nil
-}
-
-func (a *authNForCAEPRecv) Agent() *authnagent {
-	oidcrp := a.oidcrpConf.New()
-	return &authnagent{
-		oidcrp,
-		a.setSub,
-	}
-}
-
-// setSub はOIDC 認証フローで獲得できた IDToken をセッションに保存する
-func (a *authNForCAEPRecv) setSub(session string, token openid.Token) error {
-	sub := &subForCtx{token.Subject()}
-	if err := a.sm.Set(session, sub); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (sub *subForCtx) toCAEP() *caep.EventSubject {
-	return &caep.EventSubject{
-		User: map[string]string{
-			"foramt": "opaque",
-			"opaque": sub.SpagID,
-		},
-	}
+func (cm *caprp) Agent() (acpip.RxCtxAgent, error) {
+	return cm.recv, nil
 }
 
 // CAEPRecvConf は CAEP の Receiver となるための設定情報
@@ -155,7 +101,7 @@ type CAEPRecvConf struct {
 	UMAConf *UMAClientConf
 }
 
-func (c *CAEPRecvConf) new(db umaClientDB, setCtx func(spagID string, c *ctx) error) (*caeprecv, error) {
+func (c *CAEPRecvConf) new(db umaClientDB, ctxs ctxDB) (*caeprecv, error) {
 	umaCli, err := c.UMAConf.new(db)
 	if err != nil {
 		return nil, err
@@ -166,7 +112,7 @@ func (c *CAEPRecvConf) new(db umaClientDB, setCtx func(spagID string, c *ctx) er
 	}
 	a := &setAuthHeaders{umaCli, t}
 	recv := c.CAEPRecv.New(a)
-	return &caeprecv{recv, setCtx, umaCli}, nil
+	return &caeprecv{recv, ctxs, umaCli}, nil
 }
 
 type setAuthHeaders struct {
@@ -179,7 +125,7 @@ func (s *setAuthHeaders) ForConfig(r *http.Request) {
 }
 
 func (s *setAuthHeaders) ForSubAdd(sub *caep.EventSubject, r *http.Request) {
-	rpt, err := s.uma.RPT(sub.Identifier())
+	rpt, err := s.uma.RPT(NewSubForCtxFromCAEPSub(sub))
 	if err != nil {
 		return
 	}
@@ -187,20 +133,20 @@ func (s *setAuthHeaders) ForSubAdd(sub *caep.EventSubject, r *http.Request) {
 }
 
 type caeprecv struct {
-	recv   caep.Rx
-	setCtx func(spagID string, c *ctx) error
-	uma    *umaClient
+	recv caep.Rx
+	ctxs ctxDB
+	uma  *umaClient
 }
 
 // stream の config が req を満たしているかチェック
 // 満たしているとは req に含まれる ctx.ID が全て config.EventRequested に含まれているか
 func (cm *caeprecv) SetupStream(req []reqCtx) error {
-	var reqCtxID []string
+	var reqCtxType []string
 	for _, c := range req {
-		reqCtxID = append(reqCtxID, c.ID)
+		reqCtxType = append(reqCtxType, string(c.Type))
 	}
 	newConf := &caep.StreamConfig{
-		EventsRequested: reqCtxID,
+		EventsRequested: reqCtxType,
 	}
 	if err := cm.recv.SetUpStream(newConf); err != nil {
 		// 更新に失敗したら、終わり
@@ -228,11 +174,11 @@ func (cm *caeprecv) AddSub(sub *subForCtx, req []reqCtx) error {
 		Scopes  []caep.EventScope `json:"scopes"`
 	})
 	for _, r := range req {
-		et := caep.EventType(r.ID)
+		et := caep.EventType(r.Type)
 
-		resIDs := map[caep.EventType]string{
-			"ctx-1": "",
-			"ctx-2": "",
+		resID, err := cm.ctxs.UMAResID(sub, r.Type)
+		if err != nil {
+			return err
 		}
 
 		var escopes []caep.EventScope
@@ -243,7 +189,7 @@ func (cm *caeprecv) AddSub(sub *subForCtx, req []reqCtx) error {
 		reqscopes[et] = struct {
 			EventID string            `json:"event_id"`
 			Scopes  []caep.EventScope `json:"scopes"`
-		}{resIDs[et], escopes}
+		}{string(resID), escopes}
 	}
 	reqadd := &caep.ReqAddSub{
 		Subject:        sub.toCAEP(),
@@ -260,10 +206,10 @@ func (cm *caeprecv) AddSub(sub *subForCtx, req []reqCtx) error {
 	}
 	if e.Code() == caep.RecvErrorCodeUnAuthorized {
 		resp := e.Option().(*http.Response)
-		if err := cm.uma.ExtractPermissionTicket(sub.toCAEP().Identifier(), resp); err != nil {
+		if err := cm.uma.ExtractPermissionTicket(sub, resp); err != nil {
 			return err
 		}
-		if err := cm.uma.ReqRPT(sub.toCAEP().Identifier()); err != nil {
+		if err := cm.uma.ReqRPT(sub); err != nil {
 			return err
 		}
 		return cm.recv.AddSubject(reqadd)
@@ -275,21 +221,22 @@ func (cm *caeprecv) AddSub(sub *subForCtx, req []reqCtx) error {
 	return e
 }
 
-func (cm *caeprecv) Recv(r *http.Request) error {
+func (cm *caeprecv) RecvCtx(r *http.Request) error {
 	event, err := cm.recv.Recv(r)
 	if err != nil {
 		return err
 	}
-	sub := event.Subject
-	props := make(map[string]string)
+	sub := NewSubForCtxFromCAEPSub(event.Subject)
+	props := make(map[ctxScope]string)
 	for es, v := range event.Property {
-		props[string(es)] = v
+		props[ctxScope(es)] = v
 	}
 	c := &ctx{
-		ID:          string(event.Type),
+		Type:        ctxType(event.Type),
 		ScopeValues: props,
+		Sub:         sub,
 	}
-	return cm.setCtx(sub.Identifier(), c)
+	return cm.ctxs.Set(sub, c)
 }
 
 // UMAClientConf は CAP で UMAClint となるための設定情報
@@ -352,10 +299,10 @@ func (conf *UMAClientConf) new(db umaClientDB) (*umaClient, error) {
 }
 
 type umaClientDB interface {
-	SetPermissionTicket(spagID string, ticket *uma.PermissionTicket) error
-	LoadPermissionTicket(spagID string) (*uma.PermissionTicket, error)
-	SetRPT(spagID string, tok *uma.RPT) error
-	LoadRPT(spagID string) (*uma.RPT, error)
+	SetPermissionTicket(*subForCtx, *uma.PermissionTicket) error
+	LoadPermissionTicket(*subForCtx) (*uma.PermissionTicket, error)
+	SetRPT(*subForCtx, *uma.RPT) error
+	LoadRPT(*subForCtx) (*uma.RPT, error)
 }
 
 // umaClient は caep.Receiver が add subject するときの RPT を管理する
@@ -366,22 +313,22 @@ type umaClient struct {
 }
 
 // ExtractPermissionTicket は uma Resource server からのレスポンスから PermissionTicket を抽出しサブジェクトと紐付ける
-func (u *umaClient) ExtractPermissionTicket(spagID string, resp *http.Response) error {
+func (u *umaClient) ExtractPermissionTicket(sub *subForCtx, resp *http.Response) error {
 	pt, err := u.cli.ExtractPermissionTicket(resp)
 	if err != nil {
 		return err
 	}
-	return u.db.SetPermissionTicket(spagID, pt)
+	return u.db.SetPermissionTicket(sub, pt)
 }
 
 // RPT はサブジェクトと紐づいた Requesting Party Token を取得する
-func (u *umaClient) RPT(spagID string) (*uma.RPT, error) {
-	return u.db.LoadRPT(spagID)
+func (u *umaClient) RPT(sub *subForCtx) (*uma.RPT, error) {
+	return u.db.LoadRPT(sub)
 }
 
 // ReqRPT はサブジェクトと紐づいた PermissionTicket を使って UMA 認可プロセスを開始する
-func (u *umaClient) ReqRPT(spagID string) error {
-	ticket, err := u.db.LoadPermissionTicket(spagID)
+func (u *umaClient) ReqRPT(sub *subForCtx) error {
+	ticket, err := u.db.LoadPermissionTicket(sub)
 	if err != nil {
 		return err
 	}
@@ -392,5 +339,5 @@ func (u *umaClient) ReqRPT(spagID string) error {
 		}
 		return err
 	}
-	return u.db.SetRPT(spagID, tok)
+	return u.db.SetRPT(sub, tok)
 }

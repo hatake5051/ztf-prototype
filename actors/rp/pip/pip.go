@@ -67,7 +67,7 @@ func (pip *pip) GetContexts(session string, reqctxs []ac.ReqContext) ([]ac.Conte
 	}
 	return ret, nil
 }
-func (pip *pip) ContextAgent(collector string) (acpip.CtxAgent, error) {
+func (pip *pip) ContextAgent(collector string) (interface{}, error) {
 	a, err := pip.ctx.Agent(collector)
 	if err != nil {
 		return nil, err

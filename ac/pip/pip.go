@@ -28,18 +28,24 @@ const (
 	CtxsNotFound
 )
 
-// AuthNAgent は OIDC フローを実装する
+// AuthNAgent はユーザを認証するエージェントを返す。
+// このエージェントは OpenID Connect RP としてユーザの認証結果を受け取る。
+// 受け取った ID Token は PIP に保存され、セッションと紐付けられて管理される
 type AuthNAgent interface {
 	Redirect(w http.ResponseWriter, r *http.Request)
 	// Callback は r から idtoken を抽出し session と紐づけて保存する
 	Callback(session string, r *http.Request) error
 }
 
-// CtxAgent は ctx のための sub 認証のため OIDC Flow を行う
-// さらに外部で収集したコンテキストを収集する
-type CtxAgent interface {
-	AuthNAgent
+// RxCtxAgent は CAP からコンテキストを収集するエージェントを返す。
+type RxCtxAgent interface {
 	RecvCtx(r *http.Request) error
+}
+
+// TxRxCtxAgent は CAP からコンテキストを収集するだけでなく、
+// コンテキストを CAP へ提供するエージェントを返す。
+type TxRxCtxAgent interface {
+	RxCtxAgent
 }
 
 // PIP はサブジェクトやコンテキストを管理する
@@ -61,5 +67,6 @@ type PIP interface {
 	// コンテキストを CAP からまだ提供されていないときは
 	// CtxsNotFound
 	GetContexts(session string, reqctxs []ac.ReqContext) ([]ac.Context, error)
-	ContextAgent(cap string) (CtxAgent, error)
+
+	ContextAgent(cap string) (interface{}, error)
 }

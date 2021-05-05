@@ -41,7 +41,7 @@ func (pdp *pdp) Decision(s ac.Subject, r ac.Resource, a ac.Action, clist []ac.Co
 	fmt.Println("pdp.Decision start...")
 	fmt.Printf("sub(%s) wants to do action(%s) on res(%s) with context\n", s.ID(), a.ID(), r.ID())
 	for _, c := range clist {
-		fmt.Printf("  ctx(%s)\n", c.ID())
+		fmt.Printf("  ctx(%s)\n", c.Type())
 		for id, s := range c.ScopeValues() {
 			fmt.Printf("    scope(%s): %s\n", id, s)
 		}
@@ -50,7 +50,7 @@ func (pdp *pdp) Decision(s ac.Subject, r ac.Resource, a ac.Action, clist []ac.Co
 }
 
 type reqctx struct {
-	ID     string
+	Type   string
 	Scopes []string
 }
 
@@ -62,8 +62,8 @@ type wrap struct {
 	c *reqctx
 }
 
-func (c *wrap) ID() string {
-	return c.c.ID
+func (c *wrap) Type() string {
+	return c.c.Type
 }
 func (c *wrap) Scopes() []string {
 	return c.c.Scopes

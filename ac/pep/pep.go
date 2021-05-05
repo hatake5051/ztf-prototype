@@ -20,23 +20,13 @@ type PEP interface {
 	// Protect は r を保護する
 	// r に MW で保護し、r に RecvCtx と Callback のエンドポイントを設定する
 	Protect(r *mux.Router)
-	// MW は r を保護するミドルウェア
-	// このミドルウェアを通過するとは、PDPが承認したということ
-	// 内部で Redirect を利用する
-	MW(next http.Handler) http.Handler
-	// RecvCtx は CAP からコンテキストを受け取るエンドポイントに対応する http.HandlerFUnc を返す
-	RecvCtx(transmitter string) http.HandlerFunc
-	// Redirect は IdP にユーザをリダイレクトする
-	Redirect(host string, isCAP bool) http.HandlerFunc
-	// Callback は IdP からリダイレクトバックする先のエンドポイントに対応する http.HandlerFunc を返す
-	Callback(host string, isCAP bool) http.HandlerFunc
 }
 
 // New は PEP を構築する。
-// idp は PDP がユーザ識別のために使う IdP を URL で指定する。
+// idpList は PDP がユーザ識別のために使う IdP を URL のリストで指定する。
 // calList は PDP が認可判断のために使う CAP を URL のリストで指定する。
 func New(prefix string,
-	idp string,
+	idpList []string,
 	capList []string,
 	ctrl controller.Controller,
 	store sessions.Store,
@@ -45,7 +35,7 @@ func New(prefix string,
 	return &pep{
 		prefix:  prefix,
 		capList: capList,
-		idp:     idp,
+		idpList: idpList,
 		ctrl:    ctrl,
 		store:   store,
 		helper:  helper,
@@ -58,9 +48,13 @@ type Helper interface {
 	ParseAccessRequest(r *http.Request) (ac.Resource, ac.Action, error)
 }
 
+// pep は PEP の実装
 type pep struct {
-	prefix  string
-	idp     string
+	// prefix は RP の base URL のうち、 アクセス制御部のために用意された URL の prefix path を表す
+	prefix string
+	// idpList はこのアクセス制御部で利用可能な IdP のリストを表す
+	idpList []string
+	// capList はこのアクセス制御部で利用可能な CAP のリストを表す
 	capList []string
 	ctrl    controller.Controller
 	store   sessions.Store
@@ -68,12 +62,14 @@ type pep struct {
 }
 
 func (p *pep) Protect(r *mux.Router) {
-	r.Use(p.MW)
-	r.PathPrefix(path.Join("/", p.prefix, "pip/sub/0/callback")).HandlerFunc(p.Callback(p.idp, false))
-	s := r.PathPrefix(path.Join("/", p.prefix, "pip/ctx")).Subrouter()
+	r.Use(p.mw)
+	ssub := r.PathPrefix(path.Join("/", p.prefix, "pip/sub")).Subrouter()
+	for i, idp := range p.idpList {
+		ssub.PathPrefix(fmt.Sprintf("/%d/callback", i)).HandlerFunc(p.callback(idp))
+	}
+	sctx := r.PathPrefix(path.Join("/", p.prefix, "pip/ctx")).Subrouter()
 	for i, cap := range p.capList {
-		s.PathPrefix(fmt.Sprintf("/%d/callback", i)).HandlerFunc(p.Callback(cap, true))
-		s.PathPrefix(fmt.Sprintf("/%d/recv", i)).HandlerFunc(p.RecvCtx(cap))
+		sctx.PathPrefix(fmt.Sprintf("/%d/recv", i)).HandlerFunc(p.recvCtx(cap))
 	}
 }
 
@@ -88,40 +84,53 @@ func (p *pep) getSessionID(r *http.Request) (string, error) {
 	if err != nil {
 		return "", nil
 	}
+	// セッションに PEP が用いるセッションIDがあればそれを返す
 	if v, ok := session.Values[sidPEP]; ok {
 		return v.(string), nil
 	}
-
+	// なければ、 PEP 用のセッションIDを新しく作成する
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	sessionID := base64.StdEncoding.EncodeToString(b)
 	session.Values[sidPEP] = sessionID
+
 	return sessionID, nil
 }
 
-func (p *pep) MW(next http.Handler) http.Handler {
+// mw は保護するミドルウェア
+// このミドルウェアを通過するとは、PDPが承認したということである。
+// 内部で Redirect を利用する。
+func (p *pep) mw(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("request comming with %s\n", r.URL.String())
+
+		// prefix から始まる URL path は mw 自身が使用している URL なので保護しない
 		if strings.HasPrefix(r.URL.Path, path.Join("/", p.prefix)) {
 			next.ServeHTTP(w, r)
 			return
 		}
+
 		sessionID, err := p.getSessionID(r)
 		if err != nil {
 			http.Error(w, "session: cookie-pep is not exist in store :"+err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		// RP に対してユーザがどんなアクセス要求をしているのかを判定する
 		res, a, err := p.helper.ParseAccessRequest(r)
 		if err != nil {
 			http.Error(w, "parseAccessRequest failed: :"+err.Error(), http.StatusForbidden)
 			return
 		}
+
 		if err := sessions.Save(r, w); err != nil {
 			http.Error(w, fmt.Sprintf("セッションの保存に失敗 %v", err), http.StatusInternalServerError)
 			return
 		}
+
+		// アクセス判断を担う Controller に認可結果を尋ねる
 		if err := p.ctrl.AskForAuthorization(sessionID, res, a); err != nil {
 			if err, ok := err.(ac.Error); ok {
 				switch err.ID() {
@@ -132,11 +141,8 @@ func (p *pep) MW(next http.Handler) http.Handler {
 					http.Error(w, fmt.Sprintf("コンテキスト所有者に確認をとりに行っています"), http.StatusAccepted)
 					return
 				case ac.SubjectNotAuthenticated:
-					if err.Option() == "" {
-						p.Redirect(p.idp, false)(w, r)
-					} else {
-						p.Redirect(err.Option(), true)(w, r)
-					}
+					// TODO: idp を指定する方法
+					p.redirect(err.Option())(w, r)
 					return
 				case ac.IndeterminateForCtxNotFound:
 					http.Error(w, fmt.Sprintf("少し時間を置いてからアクセスしてください"), http.StatusAccepted)
@@ -152,40 +158,47 @@ func (p *pep) MW(next http.Handler) http.Handler {
 	})
 }
 
-func (p *pep) RecvCtx(transmitter string) http.HandlerFunc {
+// recvCtx は CAP からコンテキストを受け取るエンドポイント用のハンドラーを返す
+// transmitter で提供先の CAP を指定する
+func (p *pep) recvCtx(transmitter string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		a, err := p.ctrl.CtxAgent(transmitter)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := a.RecvCtx(r); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		switch a := a.(type) {
+		case pip.RxCtxAgent:
+			if err := a.RecvCtx(r); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		case pip.TxRxCtxAgent:
+			if err := a.RecvCtx(r); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		return
 	}
 }
-func (p *pep) Redirect(host string, isCAP bool) http.HandlerFunc {
+
+// redirect は IdP にユーザをリダイレクトする
+// host でリダイレクト先の IdP を指定する
+func (p *pep) redirect(host string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		session, err := p.store.Get(r, snRedirect)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// callback で戻ってきた後にどの URL に遷移すべきかを一時的に記憶する
 		session.AddFlash(r.URL.String())
 		if err := session.Save(r, w); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		var a pip.AuthNAgent
-		var e error
-		if isCAP {
-			a, e = p.ctrl.CtxAgent(host)
-
-		} else {
-			a, e = p.ctrl.SubAgent(host)
-		}
+		a, e := p.ctrl.AuthNAgent(host)
 		if e != nil {
 			http.Error(w, e.Error(), http.StatusInternalServerError)
 			return
@@ -194,17 +207,11 @@ func (p *pep) Redirect(host string, isCAP bool) http.HandlerFunc {
 	}
 }
 
-func (p *pep) Callback(host string, isCAP bool) http.HandlerFunc {
+// callback は IdP からリダイレクトバックする先のエンドポイントに対応する http.HandlerFunc を返す
+func (p *pep) callback(host string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// コールバックを受けるエージェントを選別
-		var a pip.AuthNAgent
-		var e error
-		if isCAP {
-			a, e = p.ctrl.CtxAgent(host)
-
-		} else {
-			a, e = p.ctrl.SubAgent(host)
-		}
+		a, e := p.ctrl.AuthNAgent(host)
 		if e != nil {
 			http.Error(w, e.Error(), http.StatusInternalServerError)
 			return
@@ -229,6 +236,8 @@ func (p *pep) Callback(host string, isCAP bool) http.HandlerFunc {
 		}
 		// リダイレクト用のクッキーは不要に
 		session.Options.MaxAge = -1
+
+		// callback した後にどの URL に遷移すべきかをセッションから取得する
 		if flashes := session.Flashes(); len(flashes) > 0 {
 			redirecturl := flashes[0].(string)
 			if err := sessions.Save(r, w); err != nil {
