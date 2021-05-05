@@ -8,7 +8,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"path"
 	"sync"
 
 	"github.com/lestrrat-go/jwx/jwa"
@@ -137,7 +136,9 @@ func (rx *rx) ReadStreamStatus(sub *EventSubject) (*StreamStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	url.Path = path.Join(url.Path, pidStr)
+	q := url.Query()
+	q.Add("subject", pidStr)
+	url.RawQuery = q.Encode()
 
 	req, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {

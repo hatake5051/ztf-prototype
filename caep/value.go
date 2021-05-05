@@ -198,13 +198,13 @@ func NewEventFromJSON(events interface{}) (e *Event, ok bool) {
 		return nil, false
 	}
 	for t, e := range es {
-		e, ok := e.(map[string]interface{})
+		e2, ok := e.(map[string]interface{})
 		if !ok {
 			return nil, false
 		}
 		sub := new(EventSubject)
 		prop := make(map[EventScope]string)
-		for k, v := range e {
+		for k, v := range e2 {
 			if k == "subject" {
 				ss, ok := v.(map[string]interface{})
 				if !ok {
@@ -212,18 +212,26 @@ func NewEventFromJSON(events interface{}) (e *Event, ok bool) {
 				}
 				for k, v := range ss {
 					if k == "user" {
-						vv, ok := v.(map[string]string)
+						vv, ok := v.(map[string]interface{})
 						if !ok {
 							return nil, false
 						}
-						sub.User = vv
+						users := make(map[string]string)
+						for kkk, vvv := range vv {
+							users[kkk] = vvv.(string)
+						}
+						sub.User = users
 
 					} else if k == "device" {
-						vv, ok := v.(map[string]string)
+						vv, ok := v.(map[string]interface{})
 						if !ok {
 							return nil, false
 						}
-						sub.Device = vv
+						devices := make(map[string]string)
+						for kkk, vvv := range vv {
+							devices[kkk] = vvv.(string)
+						}
+						sub.Device = devices
 					}
 				}
 				continue

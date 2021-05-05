@@ -150,7 +150,9 @@ func permittedEventScopesFromToken(tok jwt.Token) (map[caep.EventType][]caep.Eve
 			scopes = append(scopes, caep.EventScope(s))
 		}
 		v9, ok := v5["rsname"]
-		ct, ok := v9.(string)
+		cName, ok := v9.(string)
+		slice := strings.Split(cName, ":")
+		ct := slice[1]
 		eventscopes[caep.EventType(string(ct))] = scopes
 	}
 	return eventscopes, nil

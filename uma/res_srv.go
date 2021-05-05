@@ -162,6 +162,10 @@ func (m *patManager) callback(ownerID SubAtResSrv, r *http.Request) error {
 	return m.db.SavePAT(ownerID, &PAT{*accessToken})
 }
 
+func (m *patManager) client(pat *PAT) *http.Client {
+	return m.conf.Client(context.Background(), &pat.Token)
+}
+
 // ResSrv の実装
 type ressrv struct {
 	// host はこのリソースサーバ のURL
@@ -195,8 +199,8 @@ func (u *ressrv) PermissionTicket(reses []ResReqForPT) (*PermissionTicket, error
 	fmt.Printf("PAT for the service account is %#v\n", pat)
 
 	// PAT をつけて permission ticket 要求を行う
-	pat.SetAuthHeader(req)
-	resp, err := http.DefaultClient.Do(req)
+	cli := u.pat.client(pat)
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +252,8 @@ func (u *ressrv) List(ownerID SubAtResSrv) (resIDList []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	pat.SetAuthHeader(req)
-	resp, err := http.DefaultClient.Do(req)
+	cli := u.pat.client(pat)
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -305,11 +309,10 @@ func (u *ressrv) CRUD(ownerID SubAtResSrv, method string, res *Res) (*Res, error
 	}
 
 	// HTTP Request を送信する
-	pat.SetAuthHeader(req)
 	b, _ := httputil.DumpRequest(req, true)
 	fmt.Printf("Protection API for Resource Registration Request is\n%s\n", string(b))
-
-	resp, err := http.DefaultClient.Do(req)
+	cli := u.pat.client(pat)
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, err
 	}
