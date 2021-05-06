@@ -49,6 +49,42 @@ type caprp struct {
 	db   ctxDB
 }
 
+var _ ctxManager = &caprp{}
+
+func (cm *caprp) SetUMAResID(session string, mapper map[ctxType]uma.ResID) error {
+	sub, err := cm.sm.Load(session)
+	if err != nil {
+		// // subForCtx をランダムに生成して保存
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		pid := base64.URLEncoding.EncodeToString(b)
+		sub = &subForCtx{pid, ""}
+		if err := cm.sm.Set(session, sub); err != nil {
+			return err
+		}
+	}
+	var req []reqCtx
+	for ct, _ := range mapper {
+		req = append(req, reqCtx{Type: ct})
+	}
+	ctxs, _ := cm.db.Load(sub, req)
+	for ct, resID := range mapper {
+		c := &ctx{Sub: sub, Type: ct, ResID: resID}
+		for _, c2 := range ctxs {
+			if c2.Type == ct {
+				c.ScopeValues = c2.ScopeValues
+				break
+			}
+		}
+		if err := cm.db.Set(c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (cm *caprp) Get(session string, req []reqCtx) ([]ctx, error) {
 	// caep.EventStream を設定しておく
 	if err := cm.recv.SetupStream(req); err != nil {
@@ -236,7 +272,7 @@ func (cm *caeprecv) RecvCtx(r *http.Request) error {
 		ScopeValues: props,
 		Sub:         sub,
 	}
-	return cm.ctxs.Set(sub, c)
+	return cm.ctxs.Set(c)
 }
 
 // UMAClientConf は CAP で UMAClint となるための設定情報

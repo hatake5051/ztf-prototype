@@ -24,10 +24,12 @@ type PEP interface {
 
 // New は PEP を構築する。
 // idpList は PDP がユーザ識別のために使う IdP を URL のリストで指定する。
-// calList は PDP が認可判断のために使う CAP を URL のリストで指定する。
+// capList は PDP が認可判断のために使う CAP を URL のリストで指定する。
+// ctxList は PIP が認可判断のために収集するコンテキストのリストを CAP をキーにしてもつ
 func New(prefix string,
 	idpList []string,
 	capList []string,
+	ctxList map[string][]string,
 	ctrl controller.Controller,
 	store sessions.Store,
 	helper Helper,
@@ -35,6 +37,7 @@ func New(prefix string,
 	return &pep{
 		prefix:  prefix,
 		capList: capList,
+		ctxList: ctxList,
 		idpList: idpList,
 		ctrl:    ctrl,
 		store:   store,
@@ -56,6 +59,8 @@ type pep struct {
 	idpList []string
 	// capList はこのアクセス制御部で利用可能な CAP のリストを表す
 	capList []string
+	// ctxList は CAP をキーとしてそこから取得できるコンテキストの種類をリストで返す
+	ctxList map[string][]string
 	ctrl    controller.Controller
 	store   sessions.Store
 	helper  Helper
@@ -65,9 +70,11 @@ func (p *pep) Protect(r *mux.Router) {
 	r.Use(p.mw)
 	ssub := r.PathPrefix(path.Join("/", p.prefix, "pip/sub")).Subrouter()
 	for i, idp := range p.idpList {
+		ssub.PathPrefix(fmt.Sprintf("/%d/login", i)).HandlerFunc(p.redirect(idp))
 		ssub.PathPrefix(fmt.Sprintf("/%d/callback", i)).HandlerFunc(p.callback(idp))
 	}
 	sctx := r.PathPrefix(path.Join("/", p.prefix, "pip/ctx")).Subrouter()
+	sctx.PathPrefix("/rreg").HandlerFunc(p.SetCtxID)
 	for i, cap := range p.capList {
 		sctx.PathPrefix(fmt.Sprintf("/%d/recv", i)).HandlerFunc(p.recvCtx(cap))
 	}
@@ -79,7 +86,8 @@ const (
 	snRedirect = "AC_PEP_REDIRECT"
 )
 
-func (p *pep) getSessionID(r *http.Request) (string, error) {
+// getSessionID は session IDをなければ発行する。
+func (p *pep) getSessionID(r *http.Request, w http.ResponseWriter) (string, error) {
 	session, err := p.store.Get(r, snPEP)
 	if err != nil {
 		return "", nil
@@ -95,7 +103,9 @@ func (p *pep) getSessionID(r *http.Request) (string, error) {
 	}
 	sessionID := base64.StdEncoding.EncodeToString(b)
 	session.Values[sidPEP] = sessionID
-
+	if err := session.Save(r, w); err != nil {
+		return "", err
+	}
 	return sessionID, nil
 }
 
@@ -112,7 +122,7 @@ func (p *pep) mw(next http.Handler) http.Handler {
 			return
 		}
 
-		sessionID, err := p.getSessionID(r)
+		sessionID, err := p.getSessionID(r, w)
 		if err != nil {
 			http.Error(w, "session: cookie-pep is not exist in store :"+err.Error(), http.StatusInternalServerError)
 			return
@@ -141,8 +151,7 @@ func (p *pep) mw(next http.Handler) http.Handler {
 					http.Error(w, fmt.Sprintf("コンテキスト所有者に確認をとりに行っています"), http.StatusAccepted)
 					return
 				case ac.SubjectNotAuthenticated:
-					// TODO: idp を指定する方法
-					p.redirect(err.Option())(w, r)
+					p.login(w, r)
 					return
 				case ac.IndeterminateForCtxNotFound:
 					http.Error(w, fmt.Sprintf("少し時間を置いてからアクセスしてください"), http.StatusAccepted)
@@ -156,6 +165,46 @@ func (p *pep) mw(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (p *pep) SetCtxID(w http.ResponseWriter, r *http.Request) {
+	session, err := p.getSessionID(r, w)
+	if err != nil {
+		p.login(w, r)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		s := "<html><head/><body><h1>コンテキストのIDを設定してください</h1>"
+		s += `<form action="" method="POST">`
+		for cap, ctxs := range p.ctxList {
+			s += "<div>"
+			s += fmt.Sprintf("CAP: %s<br/>", cap)
+			for _, ct := range ctxs {
+				s += fmt.Sprintf(`コンテキストの種類 (%s) のID <input type="text" name="%s"><br/>`, ct, ct)
+			}
+			s += "</div>"
+		}
+		s += `<input type="submit" value="設定する">`
+		s += "</form></body></html>"
+
+		w.Write([]byte(s))
+		return
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, fmt.Sprintf("setctxid の parseform に失敗 %v", err), http.StatusInternalServerError)
+			return
+		}
+		m := make(map[string]string)
+		for k, v := range r.Form {
+			m[k] = v[0]
+		}
+		if err := p.ctrl.SetCtxID(session, m); err != nil {
+			http.Error(w, fmt.Sprintf("setctxid に失敗 %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
 }
 
 // recvCtx は CAP からコンテキストを受け取るエンドポイント用のハンドラーを返す
@@ -183,21 +232,32 @@ func (p *pep) recvCtx(transmitter string) http.HandlerFunc {
 	}
 }
 
+func (p *pep) login(w http.ResponseWriter, r *http.Request) {
+	session, err := p.store.Get(r, snRedirect)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// callback で戻ってきた後にどの URL に遷移すべきかを一時的に記憶する
+	session.AddFlash(r.URL.String())
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s := "<html><head/><body><h1>ログインする IdP を選択</h1>"
+	s += "<ul>"
+	for index, idp := range p.idpList {
+		s += fmt.Sprintf(`<li>%s で<a href="/%s/pip/sub/%d/login">ログイン</a></li>`, idp, p.prefix, index)
+	}
+	s += "</ul></body></html>"
+	w.Write([]byte(s))
+}
+
 // redirect は IdP にユーザをリダイレクトする
 // host でリダイレクト先の IdP を指定する
 func (p *pep) redirect(host string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		session, err := p.store.Get(r, snRedirect)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// callback で戻ってきた後にどの URL に遷移すべきかを一時的に記憶する
-		session.AddFlash(r.URL.String())
-		if err := session.Save(r, w); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 		a, e := p.ctrl.AuthNAgent(host)
 		if e != nil {
 			http.Error(w, e.Error(), http.StatusInternalServerError)
@@ -218,7 +278,7 @@ func (p *pep) callback(host string) http.HandlerFunc {
 		}
 
 		// sessionID と openid.IDToken を紐付ける
-		sessionID, err := p.getSessionID(r)
+		sessionID, err := p.getSessionID(r, w)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

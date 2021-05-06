@@ -68,5 +68,7 @@ type PIP interface {
 	// CtxsNotFound
 	GetContexts(session string, reqctxs []ac.ReqContext) ([]ac.Context, error)
 
+	SetCtxID(session string, mapper map[string]string) error
+
 	ContextAgent(cap string) (interface{}, error)
 }

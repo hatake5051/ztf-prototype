@@ -3,6 +3,7 @@ package pip
 import (
 	"github.com/hatake5051/ztf-prototype/ac"
 	acpip "github.com/hatake5051/ztf-prototype/ac/pip"
+	"github.com/hatake5051/ztf-prototype/uma"
 )
 
 // Conf は PIP を構成するのに必要な設定情報
@@ -44,6 +45,7 @@ func (pip *pip) GetSubject(session string) (ac.Subject, error) {
 	}
 	return sub.ToACSub(), nil
 }
+
 func (pip *pip) SubjectAuthNAgent(issuer string) (acpip.AuthNAgent, error) {
 	a, err := pip.sub.Agent(issuer)
 	if err != nil {
@@ -51,6 +53,7 @@ func (pip *pip) SubjectAuthNAgent(issuer string) (acpip.AuthNAgent, error) {
 	}
 	return a, nil
 }
+
 func (pip *pip) GetContexts(session string, reqctxs []ac.ReqContext) ([]ac.Context, error) {
 	var reqs []reqCtx
 	for _, c := range reqctxs {
@@ -67,6 +70,15 @@ func (pip *pip) GetContexts(session string, reqctxs []ac.ReqContext) ([]ac.Conte
 	}
 	return ret, nil
 }
+
+func (pip *pip) SetCtxID(session string, mapper map[string]string) error {
+	m := make(map[ctxType]uma.ResID)
+	for k, v := range mapper {
+		m[ctxType(k)] = uma.ResID(v)
+	}
+	return pip.ctx.SetUMAResID(session, m)
+}
+
 func (pip *pip) ContextAgent(collector string) (interface{}, error) {
 	a, err := pip.ctx.Agent(collector)
 	if err != nil {

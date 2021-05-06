@@ -128,6 +128,10 @@ func (tx *tx) ReadStreamStatus(w http.ResponseWriter, r *http.Request) {
 
 	// どのユーザの status を調べようとしているかチェック
 	sub := new(EventSubject)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "リクエストのパースに失敗 "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	b, err := base64.URLEncoding.DecodeString(r.Form.Get("subject"))
 	if err != nil {
 		http.Error(w, "get stream status の subject クエリが正しくないフォーマット"+err.Error(), http.StatusBadRequest)

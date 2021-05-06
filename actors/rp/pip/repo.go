@@ -180,7 +180,7 @@ func (db *ctxDBimple) UMAResID(sub *subForCtx, ct ctxType) (uma.ResID, error) {
 	var c ctx
 	b, err := db.r.Load(db.key(sub, ct))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("UMAResID %#v", err)
 	}
 	buf := bytes.NewBuffer(b)
 	if err := gob.NewDecoder(buf).Decode(&c); err != nil {
@@ -189,9 +189,9 @@ func (db *ctxDBimple) UMAResID(sub *subForCtx, ct ctxType) (uma.ResID, error) {
 	return c.ResID, nil
 }
 
-func (db *ctxDBimple) Set(sub *subForCtx, c *ctx) error {
+func (db *ctxDBimple) Set(c *ctx) error {
 	// 以前に登録したものがあるか
-	b, err := db.r.Load(db.key(sub, c.Type))
+	b, err := db.r.Load(db.key(c.Sub, c.Type))
 	if err == nil {
 		var prevCtx ctx
 		buf := bytes.NewBuffer(b)
@@ -210,7 +210,7 @@ func (db *ctxDBimple) Set(sub *subForCtx, c *ctx) error {
 	if err := gob.NewEncoder(buf).Encode(c); err != nil {
 		return err
 	}
-	return db.r.Save(db.key(sub, c.Type), buf.Bytes())
+	return db.r.Save(db.key(c.Sub, c.Type), buf.Bytes())
 }
 
 type umaClientDBimpl struct {

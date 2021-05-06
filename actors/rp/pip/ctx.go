@@ -98,16 +98,19 @@ func (conf *CtxPIPConf) new(sm map[string]smForCtxManager, db map[string]ctxDB, 
 	}
 
 	caps := make(map[ctxType]string)
+	ctxs := make(map[string][]ctxType)
 	for k, v := range conf.CtxID2CAP {
 		caps[ctxType(k)] = v
+		ctxs[v] = append(ctxs[v], ctxType(k))
 	}
 
-	return &ctxPIP{caps, ctxManagers}, nil
+	return &ctxPIP{caps, ctxs, ctxManagers}, nil
 }
 
 // ctxPIP は PIP のなかで context を管理する
 type ctxPIP struct {
-	caps     map[ctxType]string //map[ctx.name]cap
+	caps     map[ctxType]string   // ctxType -> CAP URL
+	ctxs     map[string][]ctxType // CAP URL -> ctxType list
 	managers map[string]ctxManager
 }
 
@@ -123,6 +126,19 @@ func (pip *ctxPIP) GetAll(session string, req []reqCtx) ([]ctx, error) {
 		ret = append(ret, ctx...)
 	}
 	return ret, nil
+}
+
+func (pip *ctxPIP) SetUMAResID(session string, mapper map[ctxType]uma.ResID) error {
+	var err error
+	for cap, ctxs := range pip.ctxs {
+		m := make(map[ctxType]uma.ResID)
+		for _, c := range ctxs {
+			m[c] = mapper[c]
+		}
+		cm := pip.manager(cap)
+		err = cm.SetUMAResID(session, m)
+	}
+	return err
 }
 
 func (pip *ctxPIP) Agent(collector string) (acpip.RxCtxAgent, error) {
@@ -149,6 +165,7 @@ func (pip *ctxPIP) manager(cap string) ctxManager {
 // コンテキストはある collector が集めているものをまとめて管理している
 type ctxManager interface {
 	Get(session string, req []reqCtx) ([]ctx, error)
+	SetUMAResID(session string, mapper map[ctxType]uma.ResID) error
 	Agent() (acpip.RxCtxAgent, error)
 }
 
@@ -161,7 +178,7 @@ type smForCtxManager interface {
 // ctxDB はコンテキストを保存する
 type ctxDB interface {
 	Load(sub *subForCtx, req []reqCtx) ([]ctx, error)
-	Set(sub *subForCtx, c *ctx) error
+	Set(c *ctx) error
 	UMAResID(*subForCtx, ctxType) (uma.ResID, error)
 }
 

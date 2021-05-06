@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/ac/controller"
@@ -18,7 +17,7 @@ type ACConf struct {
 	PDPConf *pdp.Conf
 }
 
-func (c *ACConf) New(prefix string) AC {
+func (c *ACConf) New(prefix string) pep.PEP {
 	repo := pip.NewRepo()
 	pip, err := c.PIPConf.New(repo)
 	if err != nil {
@@ -34,13 +33,13 @@ func (c *ACConf) New(prefix string) AC {
 	for k, _ := range c.PIPConf.CAP2RP {
 		capList = append(capList, k)
 	}
+	ctxList := make(map[string][]string)
+	for k, v := range c.PIPConf.CtxID2CAP {
+		ctxList[v] = append(ctxList[v], k)
+	}
 	store := sessions.NewCookieStore([]byte("super-secret-key"))
-	pep := pep.New(prefix, idpList, capList, ctrl, store, &helper{})
+	pep := pep.New(prefix, idpList, capList, ctxList, ctrl, store, &helper{})
 	return pep
-}
-
-type AC interface {
-	Protect(r *mux.Router)
 }
 
 type helper struct{}

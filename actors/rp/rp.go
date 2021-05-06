@@ -6,10 +6,11 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
+	"github.com/hatake5051/ztf-prototype/ac/pep"
 )
 
 // New は CAP とコンテキストを連携してアクセス制御を行うサービスを展開する RP を生成する
-func New(ac func(string) AC) *mux.Router {
+func New(ac func(prefix string) pep.PEP) *mux.Router {
 	rp := &rp{
 		store: sessions.NewCookieStore([]byte("super-secret-key")),
 	}

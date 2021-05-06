@@ -25,6 +25,9 @@ type Controller interface {
 	// CAEP Receiver としてのみ機能する場合は pip.RxCtxAgent を、
 	// CAEP Transmitter としても機能する場合は pip.TxRxCtxAgent を返り値は満たす
 	CtxAgent(cap string) (interface{}, error)
+	// SetCtxID は UMA ResSrv の発行した CtxID を PIP に保存する
+	// 引数として mapper は CtxType をキーとしてその CtxID を持つ
+	SetCtxID(session string, mapper map[string]string) error
 }
 
 // New は PIP と PDP を受け取って Controller を構成する
