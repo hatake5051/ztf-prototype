@@ -80,9 +80,18 @@ func (c *cap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := fmt.Sprintf("<html><head/><body><h1>%sさん、こんにちは</h1>", name)
-	s += `<a href="/list">コンテキストを管理する</a><br/>`
-	s += `<a href="/uma/list>認可サーバへ登録済みコンテキスト一覧</a>`
-	s += "</body></html>"
+	s += "<h1>コンテキスト一覧</h1>"
+	s += "<ul>"
+	for _, ctxType := range c.all() {
+		s += fmt.Sprintf("<li>ctx(%s)は認可サーバで保護", ctxType)
+
+		s += `されていません。=> <form action="/uma/ctx" method="POST">`
+		s += fmt.Sprintf(`<input type="hidden" name="t" value="%s"> `, ctxType)
+		s += `<button type="submit">保護する</button></form>`
+
+		s += "</li>"
+	}
+	s += "</ul></body></html>"
 	w.Write([]byte(s))
 
 }
@@ -157,30 +166,6 @@ func (c *cap) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 // 	}
 // 	c.distr.RecvAndDistribute(e)
 // }
-
-func (c *cap) CtxList(w http.ResponseWriter, r *http.Request) {
-	name, err := c.store.PreferredName(r)
-	if err != nil {
-		http.Error(w, "ユーザを識別できない", http.StatusInternalServerError)
-		return
-	}
-
-	s := fmt.Sprintf("<html><head/><body><h1>%sさん、こんにちは</h1>", name)
-	s += "<h1>コンテキスト一覧</h1>"
-	s += "<ul>"
-	for _, ctxType := range c.all() {
-		s += fmt.Sprintf("<li>ctx(%s)は認可サーバで保護", ctxType)
-
-		s += `されていません。=> <form action="/uma/ctx" method="POST">`
-		s += fmt.Sprintf(`<input type="hidden" name="t" value="%s"> `, ctxType)
-		s += `<button type="submit">保護する</button></form>`
-
-		s += "</li>"
-	}
-	s += "</ul></body></html>"
-	// んー、<> をエスケープしない
-	w.Write([]byte(s))
-}
 
 // SessionStore の実装
 type sessionStoreForCAP struct {

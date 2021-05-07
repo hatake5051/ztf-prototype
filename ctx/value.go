@@ -51,6 +51,7 @@ type Ctx interface {
 	Name() string
 
 	ID() ID
+	IDAtAuthZSrv() string
 	Sub() Sub
 	Value(Scope) string
 }

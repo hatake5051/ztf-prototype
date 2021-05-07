@@ -57,6 +57,10 @@ func (c *c) ID() ctx.ID {
 	return ctx.NewCtxID(fmt.Sprintf("id:c:%s:s:%s", c.typ, c.sub))
 }
 
+func (c *c) IDAtAuthZSrv() string {
+	return string(c.resID)
+}
+
 func (c *c) Sub() ctx.Sub {
 	return c.sub
 }
@@ -143,7 +147,7 @@ func (db *cdb) EventSubject(sub ctx.Sub, rxID caep.RxID) (*caep.EventSubject, er
 			return &esub, nil
 		}
 	}
-	return nil, fmt.Errorf("cdb.EventSub(%v,%v) で%コンテキストが見つからなかった", sub, rxID)
+	return nil, fmt.Errorf("cdb.EventSub(%v,%v) でコンテキストが見つからなかった", sub, rxID)
 }
 
 func (db *cdb) CtxSub(esub *caep.EventSubject, rxID caep.RxID) (ctx.Sub, error) {

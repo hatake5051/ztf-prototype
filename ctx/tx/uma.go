@@ -97,7 +97,7 @@ func (u *umaResSrv) crud(w http.ResponseWriter, r *http.Request) {
 	// どのコンテキストを操作するか Query から読み取る
 	ct := r.FormValue("t")
 	// 今アクセスしているユーザのそのコンテキストの中身を取得する
-	c, err := u.ctxDB.Load(sub, ctx.NewCtxType(ct))
+	c, err := u.ctxDB.LoadCtx(sub, ctx.NewCtxType(ct))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("ctxType(%s) のコンテキストは管理していません", ct), http.StatusBadRequest)
 		return
@@ -168,7 +168,7 @@ func (u *umaResSrv) crud(w http.ResponseWriter, r *http.Request) {
 	s += fmt.Sprintf("<li>%s: %t</li>", "OwnerManagedAccess", res.OwnerManagedAccess)
 	s += fmt.Sprintf("<li>%s: %s</li>", "Scopes", strings.Join(res.Scopes, " "))
 	s += "</ul>"
-	s += `<a href="/list">一覧に戻る</a>`
+	s += `<a href="/uma/list">一覧に戻る</a>`
 	s += "</body></html>"
 	// んー、<> をエスケープしない
 	w.Write([]byte(s))
