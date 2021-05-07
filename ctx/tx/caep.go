@@ -1,9 +1,8 @@
-package cap
+package tx
 
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/hatake5051/ztf-prototype/caep"
 	"github.com/hatake5051/ztf-prototype/uma"
@@ -11,14 +10,49 @@ import (
 	"github.com/lestrrat-go/jwx/jwt"
 )
 
-var _ caep.Verifier = &addsubverifier{}
+func (conf *CAEPConf) new(eventsupported []string, tokenVerificationJWKUrl string, rxDB RxDB, u uma.ResSrv, trans Translater) caep.Tx {
+	for rxID, rx := range conf.Receivers {
+		if err := rxDB.Save(&caep.Receiver{
+			ID:   caep.RxID(rxID),
+			Host: rx.Host,
+			StreamConf: &caep.StreamConfig{
+				Iss:             conf.Metadata.Issuer,
+				Aud:             []string{rx.Host},
+				EventsSupported: eventsupported,
+			},
+		}); err != nil {
+			panic("rxDB の構築に失敗" + err.Error())
+		}
+	}
+
+	return conf.to().New(
+		rxDB, &statusRepo{rxDB}, &addsubverifier{verifier{tokenVerificationJWKUrl}, u, trans},
+	)
+
+}
+
+type statusRepo struct {
+	innner RxDB
+}
+
+var _ caep.SubStatusRepo = &statusRepo{}
+
+func (db *statusRepo) Load(rxID caep.RxID, sub *caep.EventSubject) (*caep.StreamStatus, error) {
+	return db.innner.LoadStatus(rxID, sub)
+}
+
+func (db *statusRepo) Save(rxID caep.RxID, status *caep.StreamStatus) error {
+	return db.innner.SaveStatus(rxID, status)
+}
 
 // addsubverifier は caep.verifier を満たす
 type addsubverifier struct {
 	verifier
-	uma uma.ResSrv
-	pid SubPIDTranslater
+	uma   uma.ResSrv
+	trans Translater
 }
+
+var _ caep.Verifier = &addsubverifier{}
 
 func (v *addsubverifier) AddSub(authHeader string, req *caep.ReqAddSub) (caep.RxID, *caep.StreamStatus, error) {
 	tok, err := v.verifyHeader(authHeader)
@@ -49,7 +83,7 @@ func (v *addsubverifier) AddSub(authHeader string, req *caep.ReqAddSub) (caep.Rx
 		return caep.RxID(""), nil, fmt.Errorf("RxID を RPT から取得できなかった %#v", tok)
 	}
 	for _, opt := range req.ReqEventScopes {
-		if err := v.pid.BindResIDToPID(uma.ResID(opt.EventID), rxID, req.Subject); err != nil {
+		if err := v.trans.BindEventSubjectToResID(rxID, req.Subject, uma.ResID(opt.EventID)); err != nil {
 			return rxID, nil, fmt.Errorf("uma.ResID と PID の紐付けに失敗" + err.Error())
 		}
 	}
@@ -98,6 +132,8 @@ func (v *verifier) Status(authHeader string, req *caep.ReqChangeOfStreamStatus) 
 	return rxID, nil, nil
 }
 
+// verifyHeader は HTTP Authorization Header に Bearer JWT があることを想定して、そのトークンの検証を行う。
+// 検証に成功すると、パースした結果として jwt.Token を返す
 func (v *verifier) verifyHeader(authHeader string) (jwt.Token, error) {
 	// authHeader は "Bearer <Token>" の形
 	hh := strings.Split(authHeader, " ")
@@ -112,6 +148,7 @@ func (v *verifier) verifyHeader(authHeader string) (jwt.Token, error) {
 	return jwt.ParseString(hh[1], jwt.WithKeySet(jwkset))
 }
 
+// extractRxIDFromToken は jwt.Token の azp クレームから Receiver ID を取得する。
 func extractRxIDFromToken(tok jwt.Token) (rxID caep.RxID, ok bool) {
 	// AuthoriZed Party にクライアント情報がある
 	azp, ok := tok.Get("azp")
@@ -125,6 +162,7 @@ func extractRxIDFromToken(tok jwt.Token) (rxID caep.RxID, ok bool) {
 	return caep.RxID(azpStr), true
 }
 
+// permittedEventScopesFromToken は Keycloak の RPT トークンである jwt.Token から許可されたリソースへのスコープを抽出する
 func permittedEventScopesFromToken(tok jwt.Token) (map[caep.EventType][]caep.EventScope, error) {
 	eventscopes := make(map[caep.EventType][]caep.EventScope)
 	az, ok := tok.Get("authorization")
@@ -158,63 +196,63 @@ func permittedEventScopesFromToken(tok jwt.Token) (map[caep.EventType][]caep.Eve
 	return eventscopes, nil
 }
 
-// trStreamDB は Transmitter の Receiver 情報を保存するデータベース
-type trStreamDB struct {
-	m  sync.RWMutex
-	db map[caep.RxID]caep.Receiver
-}
+// // trStreamDB は Transmitter の Receiver 情報を保存するデータベース
+// type trStreamDB struct {
+// 	m  sync.RWMutex
+// 	db map[caep.RxID]caep.Receiver
+// }
 
-var _ caep.RxRepo = &trStreamDB{}
+// var _ caep.RxRepo = &trStreamDB{}
 
-func (db *trStreamDB) Load(recvID caep.RxID) (*caep.Receiver, error) {
-	db.m.RLock()
-	defer db.m.RUnlock()
-	recv, ok := db.db[recvID]
-	if !ok {
-		return nil, fmt.Errorf("recvID(%s) は登録されてません", recvID)
-	}
-	return &recv, nil
-}
+// func (db *trStreamDB) Load(recvID caep.RxID) (*caep.Receiver, error) {
+// 	db.m.RLock()
+// 	defer db.m.RUnlock()
+// 	recv, ok := db.db[recvID]
+// 	if !ok {
+// 		return nil, fmt.Errorf("recvID(%s) は登録されてません", recvID)
+// 	}
+// 	return &recv, nil
+// }
 
-func (db *trStreamDB) Save(recv *caep.Receiver) error {
-	db.m.Lock()
-	defer db.m.Unlock()
-	db.db[recv.ID] = *recv
-	return nil
-}
+// func (db *trStreamDB) Save(recv *caep.Receiver) error {
+// 	db.m.Lock()
+// 	defer db.m.Unlock()
+// 	db.db[recv.ID] = *recv
+// 	return nil
+// }
 
-type trStatusDB struct {
-	m  sync.RWMutex
-	db map[caep.RxID]map[string]caep.StreamStatus
-}
+// type trStatusDB struct {
+// 	m  sync.RWMutex
+// 	db map[caep.RxID]map[string]caep.StreamStatus
+// }
 
-var _ caep.SubStatusRepo = &trStatusDB{}
+// var _ caep.SubStatusRepo = &trStatusDB{}
 
-func (db *trStatusDB) Load(rxID caep.RxID, sub *caep.EventSubject) (*caep.StreamStatus, error) {
-	db.m.RLock()
-	defer db.m.RUnlock()
-	subs, ok := db.db[rxID]
-	if !ok || subs == nil {
-		return nil, fmt.Errorf("recvID(%s) にはまだ status が一つもない", rxID)
-	}
-	status, ok := subs[sub.Identifier()]
-	if !ok {
-		return nil, fmt.Errorf("recvID(%s) には spagID(%v) のステータスがない", rxID, sub)
-	}
-	return &status, nil
-}
+// func (db *trStatusDB) Load(rxID caep.RxID, sub *caep.EventSubject) (*caep.StreamStatus, error) {
+// 	db.m.RLock()
+// 	defer db.m.RUnlock()
+// 	subs, ok := db.db[rxID]
+// 	if !ok || subs == nil {
+// 		return nil, fmt.Errorf("recvID(%s) にはまだ status が一つもない", rxID)
+// 	}
+// 	status, ok := subs[sub.Identifier()]
+// 	if !ok {
+// 		return nil, fmt.Errorf("recvID(%s) には spagID(%v) のステータスがない", rxID, sub)
+// 	}
+// 	return &status, nil
+// }
 
-func (db *trStatusDB) Save(rxID caep.RxID, status *caep.StreamStatus) error {
-	db.m.Lock()
-	defer db.m.Unlock()
-	subs, ok := db.db[rxID]
-	if !ok || subs == nil {
-		subs = make(map[string]caep.StreamStatus)
-		db.db[rxID] = subs
-	}
-	subs[status.Subject.Identifier()] = *status
-	return nil
-}
+// func (db *trStatusDB) Save(rxID caep.RxID, status *caep.StreamStatus) error {
+// 	db.m.Lock()
+// 	defer db.m.Unlock()
+// 	subs, ok := db.db[rxID]
+// 	if !ok || subs == nil {
+// 		subs = make(map[string]caep.StreamStatus)
+// 		db.db[rxID] = subs
+// 	}
+// 	subs[status.Subject.Identifier()] = *status
+// 	return nil
+// }
 
 func newTrE(err error, code caep.TxErrorCode) caep.TxError {
 	return &tre{err, code, nil}

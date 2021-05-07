@@ -35,6 +35,8 @@ func (c *TransConf) New(rxRepo RxRepo, subStatusRepo SubStatusRepo, verifier Ver
 type Tx interface {
 	// Router は CAEP Transmitter Endpoint を mux.Router に構築する
 	Router(r *mux.Router)
+	// WellKnown は
+	WellKnown(w http.ResponseWriter, r *http.Request)
 	// Transmit は aud に event を送信する
 	Transmit(aud []Receiver, event *Event) error
 }
