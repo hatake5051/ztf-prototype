@@ -119,8 +119,7 @@ type rx struct {
 	// tr は caep.Transmitter の設定情報を含む
 	tr *Transmitter
 	// recv は Receiver の設定情報を持つ。
-	recv ReceiverConf
-	// recvOauth は stream config/status endpoit の保護に使う OAuth-AccessToken を保持
+	recv         ReceiverConf
 	setAuthHeder AuthHeaderSetter
 }
 

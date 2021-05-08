@@ -7,38 +7,36 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/ac/controller"
-	"github.com/hatake5051/ztf-prototype/ac/pdp"
 	"github.com/hatake5051/ztf-prototype/ac/pep"
-	"github.com/hatake5051/ztf-prototype/actors/rp/pip"
 )
 
-type ACConf struct {
-	PIPConf *pip.Conf
-	PDPConf *pdp.Conf
-}
-
-func (c *ACConf) New(prefix string) pep.PEP {
-	repo := pip.NewRepo()
-	pip, err := c.PIPConf.New(repo)
-	if err != nil {
-		panic(fmt.Sprintf("PIP の構成に失敗 %v", err))
-	}
-	pdp, err := c.PDPConf.New()
+func (conf *Conf) New(prefix string) pep.PEP {
+	repo := NewRepo()
+	// PIP の構成
+	sstore := &iSessionStoreForSPIP{repo, "subpip-sm"}
+	cstore := &iSessionStoreForCPIP{repo, "ctxpip-sm"}
+	db := &iCtxDB{r: repo, keyModifier: "ctxpip-db"}
+	udb := &iUMADB{repo, "ctxpip-umadb"}
+	pip := conf.PIP.New(sstore, cstore, db, udb, db)
+	// PDP の構成
+	pdp, err := conf.PDP.New()
 	if err != nil {
 		panic(fmt.Sprintf("PDP の構成に失敗 %v", err))
 	}
+	// controller の構成
 	ctrl := controller.New(pip, pdp)
-	idpList := c.PIPConf.IssuerList
-	var capList []string
-	for k, _ := range c.PIPConf.CAP2RP {
-		capList = append(capList, k)
+
+	// PEP の構成
+	var idpList []string
+	for idp, _ := range conf.PIP.Sub {
+		idpList = append(idpList, idp)
 	}
-	ctxList := make(map[string][]string)
-	for k, v := range c.PIPConf.CtxID2CAP {
-		ctxList[v] = append(ctxList[v], k)
+	var capList []string
+	for cap, _ := range conf.PIP.Ctx {
+		capList = append(capList, cap)
 	}
 	store := sessions.NewCookieStore([]byte("super-secret-key"))
-	pep := pep.New(prefix, idpList, capList, ctxList, ctrl, store, &helper{})
+	pep := pep.New(prefix, idpList, capList, ctrl, store, &helper{})
 	return pep
 }
 
@@ -73,4 +71,14 @@ type resource struct {
 
 func (res *resource) ID() string {
 	return res.id
+}
+
+type s struct {
+	raw string
+}
+
+var _ ac.Subject = &s{}
+
+func (s *s) ID() string {
+	return s.raw
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hatake5051/ztf-prototype/ac"
+	"github.com/hatake5051/ztf-prototype/ctx"
 )
 
 // PDP は認可判断の主体
@@ -14,7 +15,7 @@ type PDP interface {
 	NotifiedOfRequest(ac.Subject, ac.Resource, ac.Action) (reqctxs []ac.ReqContext, deny bool)
 	// Decision は認可判断を行う
 	// 認可判断の結果アクセスを許可するなら nil を返す
-	Decision(ac.Subject, ac.Resource, ac.Action, []ac.Context) error
+	Decision(ac.Subject, ac.Resource, ac.Action, []ctx.Ctx) error
 }
 
 // Conf は PDP 構築のための設定を表す
@@ -37,13 +38,13 @@ func (pdp *pdp) NotifiedOfRequest(s ac.Subject, r ac.Resource, a ac.Action) (req
 	return []ac.ReqContext{req1.toACReq(), req2.toACReq()}, false
 }
 
-func (pdp *pdp) Decision(s ac.Subject, r ac.Resource, a ac.Action, clist []ac.Context) error {
+func (pdp *pdp) Decision(s ac.Subject, r ac.Resource, a ac.Action, clist []ctx.Ctx) error {
 	fmt.Println("pdp.Decision start...")
 	fmt.Printf("sub(%s) wants to do action(%s) on res(%s) with context\n", s.ID(), a.ID(), r.ID())
 	for _, c := range clist {
 		fmt.Printf("  ctx(%s)\n", c.Type())
-		for id, s := range c.ScopeValues() {
-			fmt.Printf("    scope(%s): %s\n", id, s)
+		for _, s := range c.Scopes() {
+			fmt.Printf("    scope(%s): %s\n", s.String(), c.Value(s))
 		}
 	}
 	return nil
@@ -62,9 +63,13 @@ type wrap struct {
 	c *reqctx
 }
 
-func (c *wrap) Type() string {
-	return c.c.Type
+func (c *wrap) Type() ctx.Type {
+	return ctx.NewCtxType(c.c.Type)
 }
-func (c *wrap) Scopes() []string {
-	return c.c.Scopes
+func (c *wrap) Scopes() []ctx.Scope {
+	var ret []ctx.Scope
+	for _, s := range c.c.Scopes {
+		ret = append(ret, ctx.NewCtxScope(s))
+	}
+	return ret
 }

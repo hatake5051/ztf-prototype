@@ -30,6 +30,7 @@ func NewCtxSub(raw string) Sub {
 type Sub interface {
 	String() string
 	UMAResSrv() uma.SubAtResSrv
+	Options() map[string]string
 }
 
 func NewCtxScope(raw string) Scope {
@@ -42,6 +43,7 @@ func NewCtxScopeFromCAEPEventScope(cs caep.EventScope) Scope {
 
 type Scope interface {
 	String() string
+	CAEPEventScope() caep.EventScope
 }
 
 type Ctx interface {
@@ -74,4 +76,12 @@ func (t *t) CAEPEventType() caep.EventType {
 
 func (t *t) UMAResSrv() uma.SubAtResSrv {
 	return uma.SubAtResSrv(t.raw)
+}
+
+func (t *t) CAEPEventScope() caep.EventScope {
+	return caep.EventScope(t.raw)
+}
+
+func (t *t) Options() map[string]string {
+	return make(map[string]string)
 }

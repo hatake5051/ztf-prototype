@@ -29,7 +29,6 @@ type PEP interface {
 func New(prefix string,
 	idpList []string,
 	capList []string,
-	ctxList map[string][]string,
 	ctrl controller.Controller,
 	store sessions.Store,
 	helper Helper,
@@ -37,7 +36,6 @@ func New(prefix string,
 	return &pep{
 		prefix:  prefix,
 		capList: capList,
-		ctxList: ctxList,
 		idpList: idpList,
 		ctrl:    ctrl,
 		store:   store,
@@ -59,8 +57,6 @@ type pep struct {
 	idpList []string
 	// capList はこのアクセス制御部で利用可能な CAP のリストを表す
 	capList []string
-	// ctxList は CAP をキーとしてそこから取得できるコンテキストの種類をリストで返す
-	ctxList map[string][]string
 	ctrl    controller.Controller
 	store   sessions.Store
 	helper  Helper
@@ -73,10 +69,11 @@ func (p *pep) Protect(r *mux.Router) {
 		ssub.PathPrefix(fmt.Sprintf("/%d/login", i)).HandlerFunc(p.redirect(idp))
 		ssub.PathPrefix(fmt.Sprintf("/%d/callback", i)).HandlerFunc(p.callback(idp))
 	}
+
 	sctx := r.PathPrefix(path.Join("/", p.prefix, "pip/ctx")).Subrouter()
-	sctx.PathPrefix("/rreg").HandlerFunc(p.SetCtxID)
 	for i, cap := range p.capList {
 		sctx.PathPrefix(fmt.Sprintf("/%d/recv", i)).HandlerFunc(p.recvCtx(cap))
+		sctx.PathPrefix(fmt.Sprintf("/%d/rctx", i)).HandlerFunc(p.SetCtxID(cap))
 	}
 }
 
@@ -150,6 +147,16 @@ func (p *pep) mw(next http.Handler) http.Handler {
 				case ac.SubjectForCtxUnAuthorizedButReqSubmitted:
 					http.Error(w, fmt.Sprintf("コンテキスト所有者に確認をとりに行っています"), http.StatusAccepted)
 					return
+				case ac.CtxIDNotRegistered:
+					var index int
+					for i, cap := range p.capList {
+						if cap == err.Option() {
+							index = i
+							break
+						}
+					}
+					http.Redirect(w, r, fmt.Sprintf("/%s/pip/ctx/%d/rctx", p.prefix, index), http.StatusFound)
+					return
 				case ac.SubjectNotAuthenticated:
 					p.login(w, r)
 					return
@@ -167,41 +174,47 @@ func (p *pep) mw(next http.Handler) http.Handler {
 	})
 }
 
-func (p *pep) SetCtxID(w http.ResponseWriter, r *http.Request) {
-	session, err := p.getSessionID(r, w)
-	if err != nil {
-		p.login(w, r)
-		return
-	}
-
-	if r.Method == http.MethodGet {
-		s := "<html><head/><body><h1>コンテキストのIDを設定してください</h1>"
-		s += `<form action="" method="POST">`
-		for cap, ctxs := range p.ctxList {
-			s += "<div>"
-			s += fmt.Sprintf("CAP: %s<br/>", cap)
-			for _, ct := range ctxs {
-				s += fmt.Sprintf(`コンテキストの種類 (%s) のID <input type="text" name="%s"><br/>`, ct, ct)
-			}
-			s += "</div>"
-		}
-		s += `<input type="submit" value="設定する">`
-		s += "</form></body></html>"
-
-		w.Write([]byte(s))
-		return
-	}
-	if r.Method == http.MethodPost {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, fmt.Sprintf("setctxid の parseform に失敗 %v", err), http.StatusInternalServerError)
+func (p *pep) SetCtxID(cap string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		a, err := p.ctrl.CtxAgent(cap)
+		if err != nil {
+			http.Error(w, "ctxagentが見つからない"+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		m := make(map[string]string)
-		for k, v := range r.Form {
-			m[k] = v[0]
+		session, err := p.getSessionID(r, w)
+		if err != nil {
+			p.login(w, r)
+			return
 		}
-		if err := p.ctrl.SetCtxID(session, m); err != nil {
-			http.Error(w, fmt.Sprintf("setctxid に失敗 %v", err), http.StatusInternalServerError)
+		agent := a.(pip.RxCtxAgent)
+
+		if r.Method == http.MethodGet {
+			s := "<html><head/><body><h1>コンテキストのIDを設定してください</h1>"
+			s += fmt.Sprintf(`<h1>CAP(%s) のコンテキスト</h1>`, cap)
+			s += `<form action="" method="POST">`
+			s += "<li>"
+			for _, c := range agent.ManagedCtxList() {
+				s += fmt.Sprintf(`コンテキストの種類 (%[1]s) のID <input type="text" name="%[1]s" placeholder="%[2]s"><br/>`, c.Type().String(), c.IDAtAuthZSrv())
+			}
+			s += "</li>"
+			s += `<input type="submit" value="設定する">`
+			s += "</form></body></html>"
+
+			w.Write([]byte(s))
+			return
+		}
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, fmt.Sprintf("setctxid の parseform に失敗 %v", err), http.StatusInternalServerError)
+				return
+			}
+			for k, v := range r.Form {
+				if err := agent.SetCtxID(session, k, v[0]); err != nil {
+					http.Error(w, fmt.Sprintf("setctxid に失敗 %v", err), http.StatusInternalServerError)
+					return
+				}
+			}
+			http.Redirect(w, r, r.URL.String(), http.StatusFound)
 			return
 		}
 	}

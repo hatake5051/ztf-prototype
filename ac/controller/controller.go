@@ -25,9 +25,6 @@ type Controller interface {
 	// CAEP Receiver としてのみ機能する場合は pip.RxCtxAgent を、
 	// CAEP Transmitter としても機能する場合は pip.TxRxCtxAgent を返り値は満たす
 	CtxAgent(cap string) (interface{}, error)
-	// SetCtxID は UMA ResSrv の発行した CtxID を PIP に保存する
-	// 引数として mapper は CtxType をキーとしてその CtxID を持つ
-	SetCtxID(session string, mapper map[string]string) error
 }
 
 // New は PIP と PDP を受け取って Controller を構成する
@@ -42,7 +39,7 @@ type ctrl struct {
 
 func (c *ctrl) AskForAuthorization(session string, res ac.Resource, a ac.Action) error {
 	// すでに Subject in Access Request が認証済みでセッションが確立しているか確認
-	sub, err := c.PIP.GetSubject(session)
+	sub, err := c.PIP.Subject(session)
 	if err != nil {
 		if err, ok := err.(pip.Error); ok {
 			if err.Code() == pip.SubjectUnAuthenticated {
@@ -59,12 +56,14 @@ func (c *ctrl) AskForAuthorization(session string, res ac.Resource, a ac.Action)
 		return newE(fmt.Errorf("the subject(%v) is not arrowed to the action(%v) on the resource(%v)", sub.ID(), a.ID(), res.ID()), ac.RequestDenied)
 	}
 	// すでにコンテキストの Subject とセッションが確立しているか確認
-	ctxs, err := c.PIP.GetContexts(session, reqctxs)
+	ctxs, err := c.PIP.Contexts(session, reqctxs)
 	if err != nil {
 		if err, ok := err.(pip.Error); ok {
 			switch err.Code() {
 			case pip.SubjectForCtxUnAuthenticated:
 				return newEO(err, ac.SubjectNotAuthenticated, err.Option().(string))
+			case pip.CtxIDNotRegistered:
+				return newEO(err, ac.CtxIDNotRegistered, err.Option().(string))
 			case pip.SubjectForCtxUnAuthorizeButReqSubmitted:
 				return newE(err, ac.SubjectForCtxUnAuthorizedButReqSubmitted)
 			case pip.CtxsNotFound:

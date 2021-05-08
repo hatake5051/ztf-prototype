@@ -1,0 +1,30 @@
+{
+  "contexts": {
+    "ctx-1": [
+      "scope1",
+      "scope2"
+    ],
+    "ctx-2": [
+      "scope111",
+      "scope2"
+    ]
+  },
+  "uma": {
+    "req_party_credential": {
+      "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+      "name": "rp1",
+      "password": "rp1"
+    },
+    "client_credential": {
+      "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+      "token_url": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/token",
+      "id": "rp1",
+      "secret": ""
+    }
+  },
+  "caep": {
+    "host": "http://rp1.ztf-proto.k3.ipv6.mobi",
+    "pushed_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/recv",
+    "iss": "http://cap1.ztf-proto.k3.ipv6.mobi"
+  }
+}
