@@ -1,151 +1,155 @@
 package rp
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
+	"net/http"
 	"sync"
 
+	"github.com/gorilla/sessions"
 	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/ac/pip"
 	"github.com/hatake5051/ztf-prototype/caep"
 	"github.com/hatake5051/ztf-prototype/ctx"
 	"github.com/hatake5051/ztf-prototype/ctx/rx"
+	"github.com/hatake5051/ztf-prototype/ctx/tx"
 	"github.com/hatake5051/ztf-prototype/uma"
 	"github.com/lestrrat-go/jwx/jwt/openid"
 )
 
-// Repository はいろんなものを保存する場所
-type Repository interface {
-	KeyPrefix() string
-	Save(key string, b []byte) error
-	Load(key string) (b []byte, err error)
-}
-
-func NewRepo() Repository {
-	return &repo{r: make(map[string][]byte)}
-}
-
-type repo struct {
-	m sync.RWMutex
-	r map[string][]byte
-}
-
-func (r *repo) KeyPrefix() string {
-	return "repo"
-}
-
-func (r *repo) Save(key string, b []byte) error {
-	r.m.Lock()
-	defer r.m.Unlock()
-	r.r[key] = b
-	return nil
-}
-
-func (r *repo) Load(key string) (b []byte, err error) {
-	r.m.RLock()
-	defer r.m.RUnlock()
-	b, ok := r.r[key]
-	if !ok {
-		return nil, fmt.Errorf("key(%s) にはまだ保存されていない", key)
-	}
-	return b, nil
-}
-
 type iSessionStoreForSPIP struct {
-	r           Repository
-	keyModifier string
+	m sync.RWMutex
+	r map[string]*s
 }
 
 var _ pip.SessionStoreForSPIP = &iSessionStoreForSPIP{}
 
-func (sm *iSessionStoreForSPIP) key(session string) string {
-	return sm.r.KeyPrefix() + ":" + sm.keyModifier + ":" + session
-}
-
 func (sm *iSessionStoreForSPIP) Identify(session string) (ac.Subject, error) {
-	var sub s
-	b, err := sm.r.Load(sm.key(session))
-	if err != nil {
-		return nil, err
+	sm.m.RLock()
+	defer sm.m.RUnlock()
+	sub, ok := sm.r[session]
+	if !ok {
+		return nil, fmt.Errorf("session(%s) にひもづく subject なし", session)
 	}
-	buf := bytes.NewBuffer(b)
-	if err := gob.NewDecoder(buf).Decode(&sub); err != nil {
-		return nil, err
-	}
-	return &sub, nil
+	return sub, nil
 }
 
 func (sm *iSessionStoreForSPIP) SetIDToken(session string, idt openid.Token) error {
+	sm.m.Lock()
+	defer sm.m.Unlock()
 	sub := &s{idt.PreferredUsername()}
-	buf := bytes.NewBuffer(nil)
-	if err := gob.NewEncoder(buf).Encode(sub); err != nil {
-		return err
-	}
-	return sm.r.Save(sm.key(session), buf.Bytes())
+	sm.r[session] = sub
+	return nil
 }
 
 type iSessionStoreForCPIP struct {
-	r           Repository
-	keyModifier string
+	m sync.RWMutex
+	r map[string]map[string]*cs // session -> capURL -> ctx.sub
+
+	store           sessions.Store
+	sessionNme      string
+	sessionValueKey string
 }
 
 var _ pip.SessionStoreForCPIP = &iSessionStoreForCPIP{}
 
-func (sm *iSessionStoreForCPIP) key(session, cap string) string {
-	return sm.r.KeyPrefix() + ":" + sm.keyModifier + ":" + cap + ":" + session
+func (sm *iSessionStoreForCPIP) Identify(session string, cap string) ctx.Sub {
+	sm.m.Lock()
+	defer sm.m.Unlock()
+	v, ok := sm.r[session]
+	if !ok {
+		ret := &cs{
+			Sub: cap + ":" + session,
+		}
+		sm.r[session] = map[string]*cs{cap: ret}
+		return ret
+	}
+	csub, ok := v[cap]
+	if !ok {
+		ret := &cs{
+			Sub: cap + ":" + session,
+		}
+		sm.r[session][cap] = ret
+		return ret
+	}
+	return csub
 }
 
-func (sm *iSessionStoreForCPIP) Identify(session string, cap string) ctx.Sub {
-	var sub cs
-	b, err := sm.r.Load(sm.key(session, cap))
+func (sm *iSessionStoreForCPIP) ForTx(capURL string) tx.SessionStore {
+	return &iSessionStoreForCPIPTx{sm, capURL}
+}
+
+type iSessionStoreForCPIPTx struct {
+	*iSessionStoreForCPIP
+	capURL string
+}
+
+var _ tx.SessionStore = &iSessionStoreForCPIPTx{}
+
+func (sm *iSessionStoreForCPIPTx) IdentifySubject(r *http.Request) (ctx.Sub, error) {
+	session, err := sm.store.Get(r, sm.sessionNme)
 	if err != nil {
-		return &cs{
-			Sub: cap + ":" + session,
-		}
+		return nil, fmt.Errorf("セッションが確立していない %v", err)
 	}
-	buf := bytes.NewBuffer(b)
-	if err := gob.NewDecoder(buf).Decode(&sub); err != nil {
-		return &cs{
-			Sub: cap + ":" + session,
-		}
+	v, ok := session.Values[sm.sessionValueKey]
+	if !ok {
+		return nil, fmt.Errorf("セッションが確立していない %v", err)
 	}
-	return &sub
+	return sm.Identify(v.(string), sm.capURL), nil
+}
+
+func (sm *iSessionStoreForCPIPTx) LoadRedirectBack(r *http.Request) (redirectURL string) {
+	session, err := sm.store.Get(r, sm.sessionNme)
+	if err != nil {
+		return ""
+	}
+	red, ok := session.Values[sm.capURL+"return-address"].(string)
+	if !ok {
+		return ""
+	}
+	return red
+}
+
+func (sm *iSessionStoreForCPIPTx) SetRedirectBack(r *http.Request, w http.ResponseWriter, redirectURL string) error {
+	session, err := sm.store.Get(r, sm.sessionNme)
+	if err != nil {
+		return err
+	}
+	session.Values[sm.capURL+"return-address"] = redirectURL
+	if err := session.Save(r, w); err != nil {
+		return err
+	}
+	return nil
 }
 
 type iCtxDB struct {
-	r           Repository // ctx.Sub + ctx.Type -> ctx.Ctx
-	capBase     sync.Map   // cap -> []map[ctxtype][]ctxScope
-	ctxBase     sync.Map   // ctxType -> []ctxScope
-	keyModifier string
+	m       sync.RWMutex
+	ctxs    map[string]map[string]*c       // sub -> ctxtype -> c
+	capBase map[string]map[string][]string // cap -> ctxtype -> []ctxScope
+	ctxBase map[string][]string            // ctxType -> []ctxScope
 }
 
 func (db *iCtxDB) Init(capURL string, contexts map[string][]string) {
-	db.capBase.Store(capURL, contexts)
+	db.m.Lock()
+	defer db.m.Unlock()
+
+	db.capBase[capURL] = contexts
 	for ct, css := range contexts {
-		db.ctxBase.Store(ct, css)
+		db.ctxBase[ct] = css
 	}
 }
 
 var _ pip.CtxDB = &iCtxDB{}
 
-func (db *iCtxDB) key(sub ctx.Sub, ct ctx.Type) string {
-	return db.r.KeyPrefix() + ":" + db.keyModifier + ":sub:" + sub.String() + ":ct:" + ct.String()
-}
-
 func (db *iCtxDB) Load(sub ctx.Sub, cts []ctx.Type) ([]ctx.Ctx, error) {
+	db.m.RLock()
+	defer db.m.RUnlock()
 	var ret []ctx.Ctx
 	for _, ct := range cts {
-		c := c{}
-		b, err := db.r.Load(db.key(sub, ct))
-		if err != nil {
+		v, ok := db.ctxs[sub.String()]
+		if !ok {
 			continue
 		}
-		buf := bytes.NewBuffer(b)
-		if err := gob.NewDecoder(buf).Decode(&c); err != nil {
-			continue
-		}
-		ret = append(ret, &c)
+		ret = append(ret, v[ct.String()])
 	}
 	if len(ret) == 0 {
 		return nil, fmt.Errorf("sub(%v) の cts(%v) は一つもない", sub, cts)
@@ -154,20 +158,25 @@ func (db *iCtxDB) Load(sub ctx.Sub, cts []ctx.Type) ([]ctx.Ctx, error) {
 }
 
 func (db *iCtxDB) LoadAllFromCAP(capURL string, sub ctx.Sub) []ctx.Ctx {
+	db.m.Lock()
+	defer db.m.Unlock()
 	var ctxs []ctx.Ctx
-	// 存在するはず
-	v, _ := db.capBase.Load(capURL)
-	for ct, css := range v.(map[string][]string) {
+	ctxBase := db.capBase[capURL]
+
+	for ct, css := range ctxBase {
 		c := &c{}
-		if b, err := db.r.Load(db.key(sub, ctx.NewCtxType(ct))); err == nil {
-			buf := bytes.NewBuffer(b)
-			if err := gob.NewDecoder(buf).Decode(c); err != nil {
+		if v, ok := db.ctxs[sub.String()]; ok {
+			if cc, ok := v[ct]; ok {
+				c = cc
+			} else {
 				c.Typ = ct
 				c.Scos = css
+				c.Values = make(map[string]string)
 			}
 		} else {
 			c.Typ = ct
 			c.Scos = css
+			c.Values = make(map[string]string)
 		}
 
 		ctxs = append(ctxs, c)
@@ -176,33 +185,44 @@ func (db *iCtxDB) LoadAllFromCAP(capURL string, sub ctx.Sub) []ctx.Ctx {
 }
 
 func (db *iCtxDB) SaveCtxFrom(e *caep.Event) error {
+	db.m.Lock()
+	defer db.m.Unlock()
+
 	sub := NewCtxSubFromEventSubject(e.Subject)
 	ct := ctx.NewCtxType(string(e.Type))
-	v, ok := db.ctxBase.Load(ct.String())
-	if !ok {
-		return fmt.Errorf("event(%v) の type が対応していないため保存できない")
-	}
-	scopes := v.([]string)
-
-	var prevCtx c
-	// 以前に登録したものがあるか
-	if b, err := db.r.Load(db.key(sub, ct)); err == nil {
-		buf := bytes.NewBuffer(b)
-		if err := gob.NewDecoder(buf).Decode(&prevCtx); err != nil {
-			return fmt.Errorf("db.r.Load in SaveCtxFrom(%v) で失敗 %v", e, err)
+	var prevCtx *c
+	if v, ok := db.ctxs[sub.String()]; ok {
+		if prevCtx, ok = v[ct.String()]; !ok {
+			prevCtx = &c{Scos: db.ctxBase[ct.String()], Values: make(map[string]string)}
 		}
 	} else {
-		prevCtx = c{
-			Scos: scopes,
-		}
+		db.ctxs[sub.String()] = make(map[string]*c)
+		prevCtx = &c{Scos: db.ctxBase[ct.String()], Values: make(map[string]string)}
 	}
 
-	c := newCtxFromEvent(e, &prevCtx)
-	buf := bytes.NewBuffer(nil)
-	if err := gob.NewEncoder(buf).Encode(c); err != nil {
-		return err
+	db.ctxs[sub.String()][ct.String()] = newCtxFromEvent(e, prevCtx)
+	return nil
+}
+
+func (db *iCtxDB) SaveCtxFromR(sub ctx.Sub, r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("request のパースに失敗 %v", err)
 	}
-	return db.r.Save(db.key(sub, ct), buf.Bytes())
+	ct, ok := r.Form["ctx-type"]
+	if !ok {
+		return fmt.Errorf("必須パラメータなし")
+	}
+	cv, ok := r.Form["value"]
+	if !ok {
+		return fmt.Errorf("答えが設定されていない")
+	}
+	db.m.Lock()
+	defer db.m.Unlock()
+	if _, ok := db.ctxs[sub.String()]; !ok {
+		db.ctxs[sub.String()] = make(map[string]*c)
+	}
+	db.ctxs[sub.String()][ct[0]].Values[ct[0]] = cv[0]
+	return nil
 }
 
 var _ rx.Translater = &iCtxDB{}
@@ -224,101 +244,78 @@ func (tr *iCtxDB) EventSubject(sub ctx.Sub) (*caep.EventSubject, error) {
 	}
 	return ret, nil
 }
+
 func (tr *iCtxDB) CtxID(sub ctx.Sub, ct ctx.Type) (ctx.ID, error) {
-	var c c
-	b, err := tr.r.Load(tr.key(sub, ct))
-	if err != nil {
-		return nil, fmt.Errorf("tr.CtxID(%v,%v) はないよ %v", sub, ct, err)
+	tr.m.RLock()
+	defer tr.m.RUnlock()
+	v, ok := tr.ctxs[sub.String()]
+	if !ok {
+		return nil, fmt.Errorf("tr.CtxID(%v,%v) はないよ", sub, ct)
 	}
-	buf := bytes.NewBuffer(b)
-	if err := gob.NewDecoder(buf).Decode(&c); err != nil {
-		return nil, fmt.Errorf("tr.CtxID(%v,%v) のデコードに失敗 %v", sub, ct, err)
+	c, ok := v[ct.String()]
+	if !ok {
+		return nil, fmt.Errorf("tr.CtxID(%v,%v) はないよ", sub, ct)
+
 	}
 	if c.Id != "" {
 		return c.ID(), nil
 	}
 	return nil, fmt.Errorf("まだ sub(%v) の ct(%V) には CtxID は設定されていない", sub, ct)
 }
+
 func (tr *iCtxDB) BindCtxIDToCtx(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type) error {
-	v, ok := tr.ctxBase.Load(ct.String())
+	tr.m.Lock()
+	defer tr.m.Unlock()
+
+	if _, ok := tr.ctxs[sub.String()]; !ok {
+		tr.ctxs[sub.String()] = make(map[string]*c)
+	}
+	prevCtx, ok := tr.ctxs[sub.String()][ct.String()]
 	if !ok {
-		return fmt.Errorf("event(%v) の type が対応していないため保存できない")
+		prevCtx = &c{Scos: tr.ctxBase[ct.String()], Values: make(map[string]string)}
 	}
-	scopes := v.([]string)
-
-	var prevCtx c
-	// 以前に登録したものがあるか
-	if b, err := tr.r.Load(tr.key(sub, ct)); err == nil {
-		buf := bytes.NewBuffer(b)
-		if err := gob.NewDecoder(buf).Decode(&prevCtx); err != nil {
-			return fmt.Errorf("db.r.Load in BindCtxIDToCtx(%v,%v,%v) で失敗 %v", ctxID, sub, ct, err)
-		}
-	} else {
-		prevCtx = c{
-			Scos: scopes,
-		}
-	}
-
-	c := newCtxFromCtxID(ctxID, sub, ct, &prevCtx)
-	buf := bytes.NewBuffer(nil)
-	if err := gob.NewEncoder(buf).Encode(c); err != nil {
-		return err
-	}
-	return tr.r.Save(tr.key(sub, ct), buf.Bytes())
+	tr.ctxs[sub.String()][ct.String()] = newCtxFromCtxID(ctxID, sub, ct, prevCtx)
+	return nil
 }
 
 type iUMADB struct {
-	r           Repository
-	keyModifier string
+	m    sync.RWMutex
+	pts  map[string]*uma.PermissionTicket
+	rpts map[string]*uma.RPT
 }
 
 var _ rx.UMADB = &iUMADB{}
 
-func (db *iUMADB) keyPT(sub ctx.Sub) string {
-	return db.r.KeyPrefix() + ":" + db.keyModifier + ":permissionticket:" + sub.String()
-}
-
-func (db *iUMADB) keyRPT(sub ctx.Sub) string {
-	return db.r.KeyPrefix() + ":" + db.keyModifier + ":rpt:" + sub.String()
-}
-
 func (db *iUMADB) SetPermissionTicket(sub ctx.Sub, ticket *uma.PermissionTicket) error {
-	buf := bytes.NewBuffer(nil)
-	if err := gob.NewEncoder(buf).Encode(ticket); err != nil {
-		return nil
-	}
-	return db.r.Save(db.keyPT(sub), buf.Bytes())
+	db.m.Lock()
+	defer db.m.Unlock()
+	db.pts[sub.String()] = ticket
+	return nil
 }
 
 func (db *iUMADB) LoadPermissionTicket(sub ctx.Sub) (*uma.PermissionTicket, error) {
-	var pt uma.PermissionTicket
-	b, err := db.r.Load(db.keyPT(sub))
-	if err != nil {
-		return nil, err
+	db.m.RLock()
+	defer db.m.RUnlock()
+	pt, ok := db.pts[sub.String()]
+	if !ok {
+		return nil, fmt.Errorf("sub(%v) は PermissionTicket を持っていない", sub)
 	}
-	buf := bytes.NewBuffer(b)
-	if err := gob.NewDecoder(buf).Decode(&pt); err != nil {
-		return nil, err
-	}
-	return &pt, err
+	return pt, nil
 
 }
 func (db *iUMADB) SetRPT(sub ctx.Sub, tok *uma.RPT) error {
-	buf := bytes.NewBuffer(nil)
-	if err := gob.NewEncoder(buf).Encode(tok); err != nil {
-		return nil
-	}
-	return db.r.Save(db.keyRPT(sub), buf.Bytes())
+	db.m.Lock()
+	defer db.m.Unlock()
+	db.rpts[sub.String()] = tok
+	return nil
 }
 func (db *iUMADB) LoadRPT(sub ctx.Sub) (*uma.RPT, error) {
-	var rpt uma.RPT
-	b, err := db.r.Load(db.keyRPT(sub))
-	if err != nil {
-		return nil, err
+	db.m.RLock()
+	defer db.m.RUnlock()
+	tok, ok := db.rpts[sub.String()]
+	if !ok {
+		return nil, fmt.Errorf("sub(%v) は RPT を持っていない", sub)
 	}
-	buf := bytes.NewBuffer(b)
-	if err := gob.NewDecoder(buf).Decode(&rpt); err != nil {
-		return nil, err
-	}
-	return &rpt, nil
+	return tok, nil
+
 }

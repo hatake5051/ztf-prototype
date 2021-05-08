@@ -24,7 +24,7 @@ type PEP interface {
 
 // New は PEP を構築する。
 // idpList は PDP がユーザ識別のために使う IdP を URL のリストで指定する。
-// capList は PDP が認可判断のために使う CAP を URL のリストで指定する。
+// capList は PDP が認可判断のために使う CAP を列挙する。
 // ctxList は PIP が認可判断のために収集するコンテキストのリストを CAP をキーにしてもつ
 func New(prefix string,
 	idpList []string,
@@ -56,14 +56,15 @@ type pep struct {
 	// idpList はこのアクセス制御部で利用可能な IdP のリストを表す
 	idpList []string
 	// capList はこのアクセス制御部で利用可能な CAP のリストを表す
-	capList []string
-	ctrl    controller.Controller
-	store   sessions.Store
-	helper  Helper
+	capList           []string
+	ctrl              controller.Controller
+	store             sessions.Store
+	helper            Helper
+	protectedPathList []string
+	collectors        []func(r *http.Request)
 }
 
 func (p *pep) Protect(r *mux.Router) {
-	r.Use(p.mw)
 	ssub := r.PathPrefix(path.Join("/", p.prefix, "pip/sub")).Subrouter()
 	for i, idp := range p.idpList {
 		ssub.PathPrefix(fmt.Sprintf("/%d/login", i)).HandlerFunc(p.redirect(idp))
@@ -71,10 +72,24 @@ func (p *pep) Protect(r *mux.Router) {
 	}
 
 	sctx := r.PathPrefix(path.Join("/", p.prefix, "pip/ctx")).Subrouter()
+
 	for i, cap := range p.capList {
 		sctx.PathPrefix(fmt.Sprintf("/%d/recv", i)).HandlerFunc(p.recvCtx(cap))
-		sctx.PathPrefix(fmt.Sprintf("/%d/rctx", i)).HandlerFunc(p.SetCtxID(cap))
+		sctx.PathPrefix(fmt.Sprintf("/%d/rctx", i)).HandlerFunc(p.setCtxID(cap))
+		a, err := p.ctrl.CtxAgent(cap)
+		if err != nil {
+			panic("ありえん気がするわ " + err.Error())
+		}
+		agent, ok := a.(pip.TxRxCtxAgent)
+		if ok {
+			pa, h := agent.WellKnown()
+			r.Handle(path.Join("/.well-known", pa), h)
+			plist := agent.Router(sctx.PathPrefix(fmt.Sprintf("/%d/tx", i)).Subrouter())
+			p.protectedPathList = append(p.protectedPathList, plist...)
+			p.collectors = append(p.collectors, agent.Collect)
+		}
 	}
+	r.Use(p.mw)
 }
 
 const (
@@ -113,8 +128,20 @@ func (p *pep) mw(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("request comming with %s\n", r.URL.String())
 
+		// RP が地震で回収できるコンテキストを集める
+		for _, collector := range p.collectors {
+			collector(r)
+		}
+
 		// prefix から始まる URL path は mw 自身が使用している URL なので保護しない
 		if strings.HasPrefix(r.URL.Path, path.Join("/", p.prefix)) {
+			if contains(r.URL.Path, p.protectedPathList) {
+				// protectedPathList に含まれるところは認証情報が欲しいところ
+				if _, err := p.getSessionID(r, w); err != nil {
+					http.Error(w, "session: cookie-pep is not exist in store :"+err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -174,7 +201,7 @@ func (p *pep) mw(next http.Handler) http.Handler {
 	})
 }
 
-func (p *pep) SetCtxID(cap string) http.HandlerFunc {
+func (p *pep) setCtxID(cap string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		a, err := p.ctrl.CtxAgent(cap)
 		if err != nil {
@@ -326,4 +353,12 @@ func (p *pep) callback(host string) http.HandlerFunc {
 		}
 		w.Write([]byte("認証成功"))
 	}
+}
+func contains(src string, target []string) bool {
+	for _, s := range target {
+		if s == src {
+			return true
+		}
+	}
+	return false
 }

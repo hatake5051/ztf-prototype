@@ -48,7 +48,7 @@ type CtxDB interface {
 }
 
 type Translater interface {
-	EventSubject(ctx.Sub, caep.RxID) (*caep.EventSubject, error)
+	EventSubject(ctx.Sub, ctx.Type, caep.RxID) (*caep.EventSubject, error)
 	ResID(ctx.ID) (uma.ResID, error)
 	BindEventSubjectToResID(caep.RxID, *caep.EventSubject, uma.ResID) error
 	BindResIDToSub(uma.ResID, ctx.Sub, ctx.Type) error
@@ -85,7 +85,7 @@ func (tx *tx) Transmit(c ctx.Ctx) error {
 	for _, recv := range recvs {
 		aud := []caep.Receiver{recv}
 
-		sub, err := tx.trans.EventSubject(c.Sub(), recv.ID)
+		sub, err := tx.trans.EventSubject(c.Sub(), c.Type(), recv.ID)
 		if err != nil {
 			return fmt.Errorf("Receiver(%v) は sub(%v) を登録していない %v", recv, c.Sub(), err)
 		}

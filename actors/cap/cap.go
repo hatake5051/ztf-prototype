@@ -138,35 +138,6 @@ func (c *cap) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, c.store.LoadRedirectBack(r), http.StatusFound)
 }
 
-// func (c *cap) Recv(w http.ResponseWriter, r *http.Request) {
-// 	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-// 	if contentType != "application/secevent+jwt" {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	tok, err := jwt.Parse(r.Body, jwt.WithVerify(jwa.HS256, []byte("for-agent-sending")))
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-// 	v, ok := tok.Get("events")
-// 	if !ok {
-// 		http.Error(w, "送られてきたSETに events property がない", http.StatusInternalServerError)
-// 		return
-// 	}
-// 	e, ok := caep.NewSETEventsClaimFromJson(v)
-// 	if !ok {
-// 		http.Error(w, "送られてきたSET events property のパースに失敗", http.StatusInternalServerError)
-// 		return
-// 	}
-// 	c.distr.RecvAndDistribute(e)
-// }
-
 // SessionStore の実装
 type sessionStoreForCAP struct {
 	store sessions.Store

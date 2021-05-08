@@ -9,16 +9,17 @@ import (
 )
 
 func NewCtxSub(raw string) ctx.Sub {
-	return &cs{raw, ""}
+	return &cs{raw, "", make(map[caep.RxID]*caep.EventSubject)}
 }
 
 func NewCtxSubFromEventSubject(es *caep.EventSubject) ctx.Sub {
-	return &cs{es.User[es.User["format"]], es.Device[es.Device["format"]]}
+	return &cs{es.User[es.User["format"]], es.Device[es.Device["format"]], make(map[caep.RxID]*caep.EventSubject)}
 }
 
 type cs struct {
-	Sub string
-	Dev string
+	Sub   string
+	Dev   string
+	esubs map[caep.RxID]*caep.EventSubject
 }
 
 func (s *cs) String() string {
@@ -43,28 +44,26 @@ type c struct {
 	Scos    []string
 	Values  map[string]string
 	Id      string
+	ResID   string
 }
 
-func newCtxFromEvent(e *caep.Event, prevCtx ctx.Ctx) c {
+func newCtxFromEvent(e *caep.Event, prevCtx *c) *c {
 	es := e.Subject
 	values := make(map[string]string)
 	for es, v := range e.Property {
 		values[string(es)] = v
 	}
-	var scopes []string
-	for _, s := range prevCtx.Scopes() {
-		scopes = append(scopes, s.String())
-	}
-	return c{
+
+	return &c{
 		Typ:     string(e.Type),
-		Subject: &cs{es.User[es.User["format"]], es.Device[es.Device["format"]]},
-		Scos:    scopes,
+		Subject: &cs{es.User[es.User["format"]], es.Device[es.Device["format"]], make(map[caep.RxID]*caep.EventSubject)},
+		Scos:    prevCtx.Scos,
 		Values:  values,
-		Id:      prevCtx.ID().String(),
+		Id:      prevCtx.Id,
 	}
 }
 
-func newCtxFromCtxID(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type, prevCtx ctx.Ctx) c {
+func newCtxFromCtxID(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type, prevCtx *c) *c {
 	var scopes []string
 	values := make(map[string]string)
 	for _, s := range prevCtx.Scopes() {
@@ -72,12 +71,29 @@ func newCtxFromCtxID(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type, prevCtx ctx.Ctx) c 
 		values[s.String()] = prevCtx.Value(s)
 	}
 
-	return c{
+	return &c{
 		Typ:     ct.String(),
-		Subject: &cs{sub.Options()["sub"], sub.Options()["dev"]},
+		Subject: &cs{sub.Options()["sub"], sub.Options()["dev"], make(map[caep.RxID]*caep.EventSubject)},
 		Scos:    scopes,
 		Values:  values,
 		Id:      ctxID.String(),
+	}
+}
+
+func newCtxFromResID(resID uma.ResID, sub ctx.Sub, ct ctx.Type, prevCtx *c) *c {
+	var scopes []string
+	values := make(map[string]string)
+	for _, s := range prevCtx.Scopes() {
+		scopes = append(scopes, s.String())
+		values[s.String()] = prevCtx.Value(s)
+	}
+
+	return &c{
+		Typ:     ct.String(),
+		Subject: &cs{sub.Options()["sub"], sub.Options()["dev"], make(map[caep.RxID]*caep.EventSubject)},
+		Scos:    scopes,
+		Values:  values,
+		ResID:   string(resID),
 	}
 }
 

@@ -139,7 +139,7 @@ func (db *cdb) SaveValue(c ctx.Ctx) error {
 
 var _ tx.Translater = &cdb{}
 
-func (db *cdb) EventSubject(sub ctx.Sub, rxID caep.RxID) (*caep.EventSubject, error) {
+func (db *cdb) EventSubject(sub ctx.Sub, ct ctx.Type, rxID caep.RxID) (*caep.EventSubject, error) {
 	db.m.Lock()
 	defer db.m.Unlock()
 	for _, c := range db.d {

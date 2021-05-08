@@ -3,9 +3,11 @@ package pip
 import (
 	"net/http"
 
+	"github.com/gorilla/mux"
 	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/ctx"
 	"github.com/hatake5051/ztf-prototype/ctx/rx"
+	"github.com/hatake5051/ztf-prototype/ctx/tx"
 )
 
 type Conf struct {
@@ -13,9 +15,9 @@ type Conf struct {
 	Ctx CtxPIPConf `json:"ctx"`
 }
 
-func (conf *Conf) New(sstore SessionStoreForSPIP, cstore SessionStoreForCPIP, ctxDB CtxDB, umaDB rx.UMADB, translater rx.Translater) PIP {
+func (conf *Conf) New(sstore SessionStoreForSPIP, cstore SessionStoreForCPIP, ctxDB CtxDB, umaDB rx.UMADB, translaterForRx rx.Translater, rxDB tx.RxDB, translaterForTx tx.Translater) PIP {
 	spip := conf.Sub.new(sstore)
-	cpip := conf.Ctx.new(cstore, ctxDB, umaDB, translater)
+	cpip := conf.Ctx.new(cstore, ctxDB, umaDB, translaterForRx, rxDB, translaterForTx)
 	return &struct {
 		*sPIP
 		*cPIP
@@ -67,6 +69,9 @@ type RxCtxAgent interface {
 // コンテキストを CAP へ提供するエージェントを返す。
 type TxRxCtxAgent interface {
 	RxCtxAgent
+	WellKnown() (path string, h http.HandlerFunc)
+	Router(r *mux.Router) (protectedPath []string)
+	Collect(r *http.Request)
 }
 
 // ErrorCode は PIP で発生したエラー情報を伝える

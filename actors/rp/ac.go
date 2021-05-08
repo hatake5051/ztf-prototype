@@ -8,19 +8,32 @@ import (
 	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/ac/controller"
 	"github.com/hatake5051/ztf-prototype/ac/pep"
+	"github.com/hatake5051/ztf-prototype/uma"
 )
 
 func (conf *Conf) New(prefix string) pep.PEP {
-	repo := NewRepo()
+	store := sessions.NewCookieStore([]byte("super-secret-key"))
 	// PIP の構成
-	sstore := &iSessionStoreForSPIP{repo, "subpip-sm"}
-	cstore := &iSessionStoreForCPIP{repo, "ctxpip-sm"}
-	db := &iCtxDB{r: repo, keyModifier: "ctxpip-db"}
+	sstore := &iSessionStoreForSPIP{r: make(map[string]*s)}
+	cstore := &iSessionStoreForCPIP{
+		r:               make(map[string]map[string]*cs),
+		store:           store,
+		sessionNme:      "AC_PEP_SESSION",
+		sessionValueKey: "PEP_SESSION_ID"}
+	db := &iCtxDB{
+		ctxs:    make(map[string]map[string]*c),
+		capBase: make(map[string]map[string][]string),
+		ctxBase: make(map[string][]string),
+	}
 	for cap, cconf := range conf.PIP.Ctx {
 		db.Init(cap, cconf.Rx.Contexts)
 	}
-	udb := &iUMADB{repo, "ctxpip-umadb"}
-	pip := conf.PIP.New(sstore, cstore, db, udb, db)
+	udb := &iUMADB{
+		pts:  make(map[string]*uma.PermissionTicket),
+		rpts: make(map[string]*uma.RPT),
+	}
+
+	pip := conf.PIP.New(sstore, cstore, db, udb, db, &rxdb{}, &iTranslaterForTx{db})
 	// PDP の構成
 	pdp, err := conf.PDP.New()
 	if err != nil {
@@ -38,7 +51,7 @@ func (conf *Conf) New(prefix string) pep.PEP {
 	for cap, _ := range conf.PIP.Ctx {
 		capList = append(capList, cap)
 	}
-	store := sessions.NewCookieStore([]byte("super-secret-key"))
+
 	pep := pep.New(prefix, idpList, capList, ctrl, store, &helper{})
 	return pep
 }
