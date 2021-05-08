@@ -37,7 +37,7 @@ func (conf *CtxPIPConf) new(store SessionStoreForCPIP, ctxDB CtxDB, umaDB rx.UMA
 
 type CtxDB interface {
 	Load(sub ctx.Sub, cts []ctx.Type) ([]ctx.Ctx, error)
-	LoadAllFromCAP(capURL string) []ctx.Ctx
+	LoadAllFromCAP(capURL string, sub ctx.Sub) []ctx.Ctx
 	SaveCtxFrom(*caep.Event) error
 }
 
@@ -64,8 +64,8 @@ func (pip *cPIP) Contexts(session string, reqctxs []ac.ReqContext) ([]ctx.Ctx, e
 		v, _ := pip.agents.Load(cap)
 		agent := v.(*cPIPForOneCAP)
 		sub := pip.session.Identify(session, cap)
-		for _, c := range agent.ManagedCtxList() {
-			if c.IDAtAuthZSrv() == "" {
+		for _, c := range agent.ManagedCtxList(session) {
+			if c.ID().String() == "" {
 				return nil, newEO(fmt.Errorf("Ctx(%v) の CtxID が設定されていない", c), CtxIDNotRegistered, cap)
 			}
 		}
@@ -144,6 +144,7 @@ func (pip *cPIPForOneCAP) RecvCtx(r *http.Request) error {
 	return pip.rx.RecvCtx(r)
 }
 
-func (pip *cPIPForOneCAP) ManagedCtxList() []ctx.Ctx {
-	return pip.db.LoadAllFromCAP(pip.capURL)
+func (pip *cPIPForOneCAP) ManagedCtxList(session string) []ctx.Ctx {
+	sub := pip.session.Identify(session, pip.capURL)
+	return pip.db.LoadAllFromCAP(pip.capURL, sub)
 }

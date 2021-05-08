@@ -2,6 +2,7 @@ version: '3'
 services:
   rp:
     build:
+      context: ../../
       dockerfile: ./example/rp1/Dockerfile
     volumes:
       - type: bind

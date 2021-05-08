@@ -193,8 +193,8 @@ func (p *pep) SetCtxID(cap string) http.HandlerFunc {
 			s += fmt.Sprintf(`<h1>CAP(%s) のコンテキスト</h1>`, cap)
 			s += `<form action="" method="POST">`
 			s += "<li>"
-			for _, c := range agent.ManagedCtxList() {
-				s += fmt.Sprintf(`コンテキストの種類 (%[1]s) のID <input type="text" name="%[1]s" placeholder="%[2]s"><br/>`, c.Type().String(), c.IDAtAuthZSrv())
+			for _, c := range agent.ManagedCtxList(session) {
+				s += fmt.Sprintf(`コンテキストの種類 (%[1]s) のID <input type="text" name="%[1]s" placeholder="%[2]s"><br/>`, c.Type().String(), c.ID().String())
 			}
 			s += "</li>"
 			s += `<input type="submit" value="設定する">`

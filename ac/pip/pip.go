@@ -60,7 +60,7 @@ type AuthNAgent interface {
 type RxCtxAgent interface {
 	RecvCtx(r *http.Request) error
 	SetCtxID(session, ctxType, ctxID string) error
-	ManagedCtxList() []ctx.Ctx
+	ManagedCtxList(session string) []ctx.Ctx
 }
 
 // TxRxCtxAgent は CAP からコンテキストを収集するだけでなく、

@@ -153,15 +153,24 @@ func (db *iCtxDB) Load(sub ctx.Sub, cts []ctx.Type) ([]ctx.Ctx, error) {
 	return ret, nil
 }
 
-func (db *iCtxDB) LoadAllFromCAP(capURL string) []ctx.Ctx {
+func (db *iCtxDB) LoadAllFromCAP(capURL string, sub ctx.Sub) []ctx.Ctx {
 	var ctxs []ctx.Ctx
 	// 存在するはず
 	v, _ := db.capBase.Load(capURL)
 	for ct, css := range v.(map[string][]string) {
-		ctxs = append(ctxs, &c{
-			Typ:  ct,
-			Scos: css,
-		})
+		c := &c{}
+		if b, err := db.r.Load(db.key(sub, ctx.NewCtxType(ct))); err == nil {
+			buf := bytes.NewBuffer(b)
+			if err := gob.NewDecoder(buf).Decode(c); err != nil {
+				c.Typ = ct
+				c.Scos = css
+			}
+		} else {
+			c.Typ = ct
+			c.Scos = css
+		}
+
+		ctxs = append(ctxs, c)
 	}
 	return ctxs
 }
