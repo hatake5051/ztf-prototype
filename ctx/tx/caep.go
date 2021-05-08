@@ -89,7 +89,12 @@ func (v *addsubverifier) AddSub(authHeader string, req *caep.ReqAddSub) (caep.Rx
 		return caep.RxID(""), nil, fmt.Errorf("RxID を RPT から取得できなかった %#v", tok)
 	}
 	for _, opt := range req.ReqEventScopes {
-		if err := v.trans.BindEventSubjectToResID(rxID, req.Subject, uma.ResID(opt.EventID)); err != nil {
+		resID, err := v.trans.ResID(ctx.NewCtxID(opt.EventID))
+		if err != nil {
+			fmt.Printf("AddSub で EventID -> ResID の変換に失敗 %v\n", err)
+			return "", nil, fmt.Errorf("AddSub で EventID -> ResID の変換に失敗 %v\n", err)
+		}
+		if err := v.trans.BindEventSubjectToResID(rxID, req.Subject, resID); err != nil {
 			return rxID, nil, fmt.Errorf("uma.ResID と PID の紐付けに失敗" + err.Error())
 		}
 	}
