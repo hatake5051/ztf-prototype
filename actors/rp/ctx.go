@@ -17,32 +17,32 @@ func NewCtxSubFromEventSubject(es *caep.EventSubject) ctx.Sub {
 }
 
 type cs struct {
-	sub string
-	dev string
+	Sub string
+	Dev string
 }
 
 func (s *cs) String() string {
-	ret := "sub:" + s.sub
-	if s.dev != "" {
-		ret += ":dev:" + s.dev
+	ret := "sub:" + s.Sub
+	if s.Dev != "" {
+		ret += ":dev:" + s.Dev
 	}
 	return ret
 }
 
 func (s *cs) UMAResSrv() uma.SubAtResSrv {
-	return uma.SubAtResSrv(s.sub)
+	return uma.SubAtResSrv(s.Sub)
 }
 
 func (s *cs) Options() map[string]string {
-	return map[string]string{"sub": s.sub, "dev": s.dev}
+	return map[string]string{"sub": s.Sub, "dev": s.Dev}
 }
 
 type c struct {
-	typ    string
-	sub    *cs
-	scopes []string
-	values map[string]string
-	id     string
+	Typ     string
+	Subject *cs
+	Scos    []string
+	Values  map[string]string
+	Id      string
 }
 
 func newCtxFromEvent(e *caep.Event, prevCtx ctx.Ctx) c {
@@ -56,11 +56,11 @@ func newCtxFromEvent(e *caep.Event, prevCtx ctx.Ctx) c {
 		scopes = append(scopes, s.String())
 	}
 	return c{
-		typ:    string(e.Type),
-		sub:    &cs{es.User[es.User["format"]], es.Device[es.Device["format"]]},
-		scopes: scopes,
-		values: values,
-		id:     prevCtx.ID().String(),
+		Typ:     string(e.Type),
+		Subject: &cs{es.User[es.User["format"]], es.Device[es.Device["format"]]},
+		Scos:    scopes,
+		Values:  values,
+		Id:      prevCtx.ID().String(),
 	}
 }
 
@@ -73,34 +73,34 @@ func newCtxFromCtxID(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type, prevCtx ctx.Ctx) c 
 	}
 
 	return c{
-		typ:    ct.String(),
-		sub:    &cs{sub.Options()["sub"], sub.Options()["dev"]},
-		scopes: scopes,
-		values: values,
-		id:     prevCtx.ID().String(),
+		Typ:     ct.String(),
+		Subject: &cs{sub.Options()["sub"], sub.Options()["dev"]},
+		Scos:    scopes,
+		Values:  values,
+		Id:      prevCtx.ID().String(),
 	}
 }
 
 var _ ctx.Ctx = &c{}
 
 func (c *c) Type() ctx.Type {
-	return ctx.NewCtxType(c.typ)
+	return ctx.NewCtxType(c.Typ)
 }
 
 func (c *c) Scopes() []ctx.Scope {
 	var ret []ctx.Scope
-	for _, s := range c.scopes {
+	for _, s := range c.Scos {
 		ret = append(ret, ctx.NewCtxScope(s))
 	}
 	return ret
 }
 
 func (c *c) Name() string {
-	return fmt.Sprintf("c:%s:s:%s", c.typ, c.sub)
+	return fmt.Sprintf("c:%s:s:%s", c.Typ, c.Subject)
 }
 
 func (c *c) ID() ctx.ID {
-	return ctx.NewCtxID(c.id)
+	return ctx.NewCtxID(c.Id)
 }
 
 func (c *c) IDAtAuthZSrv() string {
@@ -108,9 +108,9 @@ func (c *c) IDAtAuthZSrv() string {
 }
 
 func (c *c) Sub() ctx.Sub {
-	return c.sub
+	return c.Subject
 }
 
 func (c *c) Value(s ctx.Scope) string {
-	return c.values[s.String()]
+	return c.Values[s.String()]
 }

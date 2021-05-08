@@ -1,9 +1,12 @@
 version: '3'
 services:
-  cap:
+  rp:
     build:
-      context: ../../
       dockerfile: ./example/rp1/Dockerfile
+    volumes:
+      - type: bind
+        source: "../../"
+        target: "/go/src/app"
     hostname: rp1.ztf-proto.k3.ipv6.mobi
     environment:
       VIRTUAL_HOST: rp1.ztf-proto.k3.ipv6.mobi

@@ -16,6 +16,9 @@ func (conf *Conf) New(prefix string) pep.PEP {
 	sstore := &iSessionStoreForSPIP{repo, "subpip-sm"}
 	cstore := &iSessionStoreForCPIP{repo, "ctxpip-sm"}
 	db := &iCtxDB{r: repo, keyModifier: "ctxpip-db"}
+	for cap, cconf := range conf.PIP.Ctx {
+		db.Init(cap, cconf.Rx.Contexts)
+	}
 	udb := &iUMADB{repo, "ctxpip-umadb"}
 	pip := conf.PIP.New(sstore, cstore, db, udb, db)
 	// PDP の構成
@@ -74,11 +77,11 @@ func (res *resource) ID() string {
 }
 
 type s struct {
-	raw string
+	Raw string
 }
 
 var _ ac.Subject = &s{}
 
 func (s *s) ID() string {
-	return s.raw
+	return s.Raw
 }

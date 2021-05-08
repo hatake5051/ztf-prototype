@@ -80,7 +80,7 @@ func (sm *iSessionStoreForSPIP) SetIDToken(session string, idt openid.Token) err
 	sub := &s{idt.PreferredUsername()}
 	buf := bytes.NewBuffer(nil)
 	if err := gob.NewEncoder(buf).Encode(sub); err != nil {
-		return nil
+		return err
 	}
 	return sm.r.Save(sm.key(session), buf.Bytes())
 }
@@ -101,13 +101,13 @@ func (sm *iSessionStoreForCPIP) Identify(session string, cap string) ctx.Sub {
 	b, err := sm.r.Load(sm.key(session, cap))
 	if err != nil {
 		return &cs{
-			sub: cap + ":" + session,
+			Sub: cap + ":" + session,
 		}
 	}
 	buf := bytes.NewBuffer(b)
 	if err := gob.NewDecoder(buf).Decode(&sub); err != nil {
 		return &cs{
-			sub: cap + ":" + session,
+			Sub: cap + ":" + session,
 		}
 	}
 	return &sub
@@ -155,14 +155,12 @@ func (db *iCtxDB) Load(sub ctx.Sub, cts []ctx.Type) ([]ctx.Ctx, error) {
 
 func (db *iCtxDB) LoadAllFromCAP(capURL string) []ctx.Ctx {
 	var ctxs []ctx.Ctx
-	v, ok := db.ctxBase.Load(capURL)
-	if ok {
-		return nil
-	}
+	// 存在するはず
+	v, _ := db.capBase.Load(capURL)
 	for ct, css := range v.(map[string][]string) {
 		ctxs = append(ctxs, &c{
-			typ:    ct,
-			scopes: css,
+			Typ:  ct,
+			Scos: css,
 		})
 	}
 	return ctxs
@@ -186,7 +184,7 @@ func (db *iCtxDB) SaveCtxFrom(e *caep.Event) error {
 		}
 	} else {
 		prevCtx = c{
-			scopes: scopes,
+			Scos: scopes,
 		}
 	}
 
@@ -227,7 +225,7 @@ func (tr *iCtxDB) CtxID(sub ctx.Sub, ct ctx.Type) (ctx.ID, error) {
 	if err := gob.NewDecoder(buf).Decode(&c); err != nil {
 		return nil, fmt.Errorf("tr.CtxID(%v,%v) のデコードに失敗 %v", sub, ct, err)
 	}
-	if c.id != "" {
+	if c.Id != "" {
 		return c.ID(), nil
 	}
 	return nil, fmt.Errorf("まだ sub(%v) の ct(%V) には CtxID は設定されていない", sub, ct)
@@ -248,7 +246,7 @@ func (tr *iCtxDB) BindCtxIDToCtx(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type) error {
 		}
 	} else {
 		prevCtx = c{
-			scopes: scopes,
+			Scos: scopes,
 		}
 	}
 
