@@ -4,6 +4,10 @@ services:
     build:
       context: ../../
       dockerfile: ./example/cap/Dockerfile
+    volumes:
+      - type: bind
+        source: "../../"
+        target: "/go/src/app"
     hostname: cap1.ztf-proto.k3.ipv6.mobi
     environment:
       VIRTUAL_HOST: cap1.ztf-proto.k3.ipv6.mobi

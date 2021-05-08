@@ -77,7 +77,7 @@ func newCtxFromCtxID(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type, prevCtx ctx.Ctx) c 
 		Subject: &cs{sub.Options()["sub"], sub.Options()["dev"]},
 		Scos:    scopes,
 		Values:  values,
-		Id:      prevCtx.ID().String(),
+		Id:      ctxID.String(),
 	}
 }
 

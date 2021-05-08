@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hatake5051/ztf-prototype/caep"
+	"github.com/hatake5051/ztf-prototype/ctx"
 	"github.com/hatake5051/ztf-prototype/uma"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
@@ -64,8 +65,13 @@ func (v *addsubverifier) AddSub(authHeader string, req *caep.ReqAddSub) (caep.Rx
 			for _, s := range opts.Scopes {
 				ss = append(ss, string(s))
 			}
+			resID, err := v.trans.ResID(ctx.NewCtxID(opts.EventID))
+			if err != nil {
+				fmt.Printf("AddSub で EventID -> ResID の変換に失敗 %v\n", err)
+				return "", nil, fmt.Errorf("AddSub で EventID -> ResID の変換に失敗 %v\n", err)
+			}
 			req := uma.ResReqForPT{
-				ID:     uma.ResID(opts.EventID),
+				ID:     resID,
 				Scopes: ss,
 			}
 			reqs = append(reqs, req)
