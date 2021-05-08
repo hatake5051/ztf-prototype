@@ -2,7 +2,7 @@
   "pip": {
     "sub": {
       "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp": {
-        "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp",
+        "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp",
         "client_id": "rp1",
         "client_secret": "",
         "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/0/callback"

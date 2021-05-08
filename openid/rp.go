@@ -14,12 +14,12 @@ import (
 // Conf は OpenID Connect の RP としての設定情報を表す
 type Conf struct {
 	// Issuer は OP のドメイン
-	Issuer string
+	Issuer string `json:"issuer"`
 	// RP としての client credential
-	ClientID     string
-	ClientSecret string
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
 	// RedirectURL は callback先のURLを表す
-	RedirectURL string
+	RedirectURL string `json:"redirect_url"`
 }
 
 /// New は RP の設定情報をもとに OpenID RP を構築する。

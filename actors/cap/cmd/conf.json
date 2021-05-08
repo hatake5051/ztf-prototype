@@ -2,8 +2,8 @@
   "cap": {
     "openid": {
       "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/cap1-idp",
-      "rp_id": "cap1",
-      "rp_secret": "",
+      "client_id": "cap1",
+      "client_secret": "",
       "redirect_url": "http://cap1.ztf-proto.k3.ipv6.mobi/oidc/callback"
     }
   },

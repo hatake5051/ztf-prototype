@@ -44,7 +44,7 @@ func (conf *Conf) New() *mux.Router {
 
 	cap := &cap{
 		store: store,
-		rp:    conf.CAP.Openid.to().New(),
+		rp:    conf.CAP.Openid.New(),
 		all:   d.All,
 	}
 
