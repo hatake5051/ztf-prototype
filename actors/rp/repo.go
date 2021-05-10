@@ -61,6 +61,9 @@ func (sm *iSessionStoreForCPIP) Identify(session string, cap string) ctx.Sub {
 		ret := &cs{
 			Sub: cap + ":" + session,
 		}
+		if asub, err := sm.spipSM.Identify(session); err == nil {
+			ret = &cs{Sub: asub.ID()}
+		}
 		sm.r[session] = map[string]*cs{cap: ret}
 		return ret
 	}
@@ -69,7 +72,10 @@ func (sm *iSessionStoreForCPIP) Identify(session string, cap string) ctx.Sub {
 		ret := &cs{
 			Sub: cap + ":" + session,
 		}
-		sm.r[session][cap] = ret
+		if asub, err := sm.spipSM.Identify(session); err == nil {
+			ret = &cs{Sub: asub.ID()}
+		}
+		sm.r[session] = map[string]*cs{cap: ret}
 		return ret
 	}
 	return csub
@@ -136,10 +142,15 @@ type iCtxDB struct {
 func (db *iCtxDB) Init(capURL string, contexts map[string][]string) {
 	db.m.Lock()
 	defer db.m.Unlock()
+	if _, ok := db.capBase[capURL]; !ok {
+		db.capBase[capURL] = make(map[string][]string)
+	}
+	for k, v := range contexts {
+		db.capBase[capURL][k] = v
+	}
 
-	db.capBase[capURL] = contexts
 	for ct, css := range contexts {
-		db.ctxBase[ct] = css
+		db.ctxBase[ct] = append(db.ctxBase[ct], css...)
 	}
 }
 

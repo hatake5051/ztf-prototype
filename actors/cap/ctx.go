@@ -19,6 +19,8 @@ type s struct {
 	esubs map[caep.RxID]caep.EventSubject
 }
 
+var _ ctx.Sub = &s{}
+
 func (s *s) String() string {
 	return s.sub
 }
@@ -37,6 +39,7 @@ type c struct {
 	scopes []string
 	values map[string]string
 	resID  uma.ResID
+	id     string
 }
 
 var _ ctx.Ctx = &c{}
@@ -58,7 +61,7 @@ func (c *c) Name() string {
 }
 
 func (c *c) ID() ctx.ID {
-	return ctx.NewCtxID(fmt.Sprintf("id:c:%s:s:%s", c.typ, c.sub))
+	return ctx.NewCtxID(c.id) //fmt.Sprintf("id:c:%s:s:%s", c.typ, c.sub)
 }
 
 func (c *c) IDAtAuthZSrv() string {
@@ -75,18 +78,18 @@ func (c *c) Value(s ctx.Scope) string {
 
 type cdb struct {
 	cBase map[string]c // ctx.Type -> ctx.Ctx
-	m     sync.Mutex
-	// めんどいので
-	d []*c
+	m     sync.RWMutex
+	ctxs  map[string]map[string]*c // subject -> ctx.Type -> ctx.Ctx
+	subs  map[string]*s            // ( pseudonymou )ctx.Sub -> (cap-identifiable) subject
 }
 
 var _ tx.CtxDB = &cdb{}
 
 func (db *cdb) LoadCtx(sub ctx.Sub, ct ctx.Type) (ctx.Ctx, error) {
-	db.m.Lock()
-	defer db.m.Unlock()
-	for _, c := range db.d {
-		if c.Sub().String() == sub.String() && c.Type().String() == ct.String() {
+	db.m.RLock()
+	defer db.m.RUnlock()
+	if v, ok := db.ctxs[sub.String()]; ok {
+		if c, ok := v[ct.String()]; ok {
 			return c, nil
 		}
 	}
@@ -94,92 +97,96 @@ func (db *cdb) LoadCtx(sub ctx.Sub, ct ctx.Type) (ctx.Ctx, error) {
 	c.sub = &s{
 		sub.String(), make(map[caep.RxID]caep.EventSubject),
 	}
-	db.d = append(db.d, &c)
 	return &c, nil
 }
 
 func (db *cdb) LoadAll(sub ctx.Sub) ([]ctx.Ctx, error) {
-	db.m.Lock()
-	defer db.m.Unlock()
+	db.m.RLock()
+	defer db.m.RUnlock()
 	var ans []ctx.Ctx
-	for _, c := range db.d {
-		if c.Sub().String() == sub.String() {
-			ans = append(ans, c)
-		}
-	}
-	if len(ans) != len(db.cBase) {
-		for ct, cv := range db.cBase {
-			exits := false
-			for _, a := range ans {
-				if a.Type().String() == ct {
-					exits = true
-					break
-				}
-			}
-			if !exits {
-				ans = append(ans, &c{
-					sub:    &s{sub.String(), make(map[caep.RxID]caep.EventSubject)},
-					typ:    cv.typ,
-					scopes: cv.scopes,
-					values: make(map[string]string),
-				})
+	for ct, cv := range db.cBase {
+		if v, ok := db.ctxs[sub.String()]; ok {
+			if c, ok := v[ct]; ok {
+				ans = append(ans, c)
+				continue
 			}
 		}
-		return ans, nil
+		s := &s{sub.String(), make(map[caep.RxID]caep.EventSubject)}
+		ans = append(ans, &c{
+			cv.typ, s, cv.scopes, make(map[string]string), "", fmt.Sprintf("id:c:%s:s:%s", cv.typ, s.String()),
+		})
 	}
 	return ans, nil
 }
 
-func (db *cdb) SaveValue(c ctx.Ctx) error {
+func (db *cdb) SaveValue(ct ctx.Ctx) error {
 	db.m.Lock()
 	defer db.m.Unlock()
-	for _, prev := range db.d {
-		if prev.ID().String() == c.ID().String() {
-			for k, _ := range prev.values {
-				newv := c.Value(ctx.NewCtxScope(k))
-				if newv != "" {
-					prev.values[k] = newv
-				}
-			}
+	ss := db.subs[ct.Sub().String()]
+	if _, ok := db.ctxs[ss.String()]; !ok {
+		db.ctxs[ss.String()] = make(map[string]*c)
+	}
+	prev, ok := db.ctxs[ss.String()][ct.Type().String()]
+	ccc := db.cBase[ct.Type().String()]
+	if !ok {
+		ccc.sub = ss
+		ccc.id = fmt.Sprintf("id:c:%s:s:%s", ccc.typ, ss.String())
+		ccc.resID = ""
+		ccc.values = make(map[string]string)
+		for _, scop := range ccc.scopes {
+			ccc.values[scop] = ct.Value(ctx.NewCtxScope(scop))
+		}
+		db.ctxs[ss.String()][ct.Type().String()] = &ccc
+		return nil
+	}
+	for _, scop := range ccc.scopes {
+		newv := ct.Value(ctx.NewCtxScope(scop))
+		if newv != "" {
+			prev.values[scop] = newv
 		}
 	}
+	db.ctxs[ss.String()][ct.Type().String()] = prev
 	return nil
 }
 
 var _ tx.Translater = &cdb{}
 
 func (db *cdb) EventSubject(sub ctx.Sub, ct ctx.Type, rxID caep.RxID) (*caep.EventSubject, error) {
-	db.m.Lock()
-	defer db.m.Unlock()
-	for _, c := range db.d {
-		if c.Sub().String() == sub.String() {
-			esub, ok := c.sub.esubs[rxID]
-			if !ok {
-				return nil, fmt.Errorf("cdb.EventSub(%v,%v) で%v から sub.esub から見つからなかった", sub, rxID, c)
+	db.m.RLock()
+	defer db.m.RUnlock()
+	ss := db.subs[sub.String()]
+	if v, ok := db.ctxs[ss.String()]; ok {
+		if c, ok := v[ct.String()]; ok {
+			if esub, ok := c.sub.esubs[rxID]; ok {
+				return &esub, nil
 			}
-			return &esub, nil
 		}
 	}
-	return nil, fmt.Errorf("cdb.EventSub(%v,%v) でコンテキストが見つからなかった", sub, rxID)
+	return nil, fmt.Errorf("cdb.EventSub(%v,%v, %v) でコンテキストが見つからなかった", sub, ct, rxID)
 }
 
 func (db *cdb) CtxSub(esub *caep.EventSubject, rxID caep.RxID) (ctx.Sub, error) {
-	db.m.Lock()
-	defer db.m.Unlock()
-	for _, c := range db.d {
-		if es, ok := c.sub.esubs[rxID]; ok && es.Identifier() == esub.Identifier() {
-			return c.sub, nil
-		}
+	db.m.RLock()
+	defer db.m.RUnlock()
+	ss, ok := db.subs[esub.Identifier()]
+	if !ok {
+		return nil, fmt.Errorf("db.subs から esub(%v) に対応するもの見つからん ", esub)
 	}
-	return nil, fmt.Errorf("cdb.CtxSub(%v,%v) で失敗", esub, rxID)
+	return ss, nil
 }
 
 func (db *cdb) ResID(cid ctx.ID) (uma.ResID, error) {
 	db.m.Lock()
 	defer db.m.Unlock()
-	for _, c := range db.d {
-		if c.ID().String() == cid.String() {
-			return uma.ResID(c.resID), nil
+	for _, v := range db.ctxs {
+		if v != nil {
+			for _, c := range v {
+				if c.id == cid.String() {
+					if string(c.resID) != "" {
+						return c.resID, nil
+					}
+				}
+			}
 		}
 	}
 	return "", fmt.Errorf("cdb.ResID(%v) は見つからない", cid)
@@ -188,10 +195,15 @@ func (db *cdb) ResID(cid ctx.ID) (uma.ResID, error) {
 func (db *cdb) BindEventSubjectToResID(rxID caep.RxID, esub *caep.EventSubject, resID uma.ResID) error {
 	db.m.Lock()
 	defer db.m.Unlock()
-	for _, c := range db.d {
-		if c.resID == resID {
-			c.sub.esubs[rxID] = *esub
-			return nil
+	for _, v := range db.ctxs {
+		if v != nil {
+			for _, c := range v {
+				if string(c.resID) == string(resID) {
+					c.sub.esubs[rxID] = *esub
+					db.subs[esub.Identifier()] = c.sub
+					return nil
+				}
+			}
 		}
 	}
 	return fmt.Errorf("cdb.BindEventSubjectToResID(%v,%v,%v) に失敗", rxID, esub, resID)
@@ -200,13 +212,22 @@ func (db *cdb) BindEventSubjectToResID(rxID caep.RxID, esub *caep.EventSubject, 
 func (db *cdb) BindResIDToSub(resID uma.ResID, csub ctx.Sub, ct ctx.Type) error {
 	db.m.Lock()
 	defer db.m.Unlock()
-	for _, c := range db.d {
-		if c.Sub().String() == csub.String() && c.Type().String() == ct.String() {
+	ss := db.subs[csub.String()]
+	if v, ok := db.ctxs[ss.String()]; ok {
+		if c, ok := v[ct.String()]; ok {
 			c.resID = resID
 			return nil
 		}
+	} else {
+		db.ctxs[ss.String()] = make(map[string]*c)
 	}
-	return fmt.Errorf("cdb.BindResIDToSub(%v,%v,%v) に失敗", resID, csub, ct)
+	base := db.cBase[ct.String()]
+	base.resID = resID
+	base.sub = ss
+	base.id = fmt.Sprintf("id:c:%s:s:%s", ct.String(), ss.String())
+	db.ctxs[ss.String()][ct.String()] = &base
+
+	return nil
 }
 
 type rxdb struct {

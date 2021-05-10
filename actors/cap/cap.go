@@ -3,9 +3,11 @@ package cap
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
+	"github.com/hatake5051/ztf-prototype/caep"
 	"github.com/hatake5051/ztf-prototype/ctx"
 	"github.com/hatake5051/ztf-prototype/ctx/tx"
 	"github.com/hatake5051/ztf-prototype/openid"
@@ -13,11 +15,6 @@ import (
 
 // New は CAP のサーバを構築する
 func (conf *Conf) New() *mux.Router {
-	// CAP でのセッションを管理する store を構築
-	store := &sessionStoreForCAP{
-		sessions.NewCookieStore([]byte("super-secret-key")),
-	}
-
 	// CAP でのコンテキストデータベースを構築
 	ctxBase := make(map[string]c)
 	for ct, css := range conf.Tx.Contexts {
@@ -31,11 +28,18 @@ func (conf *Conf) New() *mux.Router {
 			values: scopeValue,
 		}
 	}
+	cdb := &cdb{
+		ctxBase, sync.RWMutex{}, make(map[string]map[string]*c), make(map[string]*s),
+	}
+
+	// CAP でのセッションを管理する store を構築
+	store := &sessionStoreForCAP{
+		sessions.NewCookieStore([]byte("super-secret-key")),
+		cdb,
+	}
 
 	d := &distributer{
-		cdb: &cdb{
-			cBase: ctxBase,
-		},
+		cdb:  cdb,
 		rxdb: &rxdb{},
 	}
 
@@ -63,10 +67,8 @@ func (conf *Conf) New() *mux.Router {
 // SessionStore は CAP のセッションを管理する
 type SessionStore interface {
 	tx.SessionStore
-	PreferredName(r *http.Request) (string, error)
-	SetIdentity(r *http.Request, w http.ResponseWriter, sub ctx.Sub, preferredName string) error
+	SetIdentity(r *http.Request, w http.ResponseWriter, sub ctx.Sub) error
 }
-
 type cap struct {
 	rp            openid.RP
 	store         SessionStore
@@ -104,7 +106,7 @@ func (c *cap) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	err = c.store.SetIdentity(r, w, NewCtxSub(idToken.Subject()), idToken.PreferredUsername())
+	err = c.store.SetIdentity(r, w, NewCtxSub(idToken.PreferredUsername()))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -115,9 +117,25 @@ func (c *cap) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 // SessionStore の実装
 type sessionStoreForCAP struct {
 	store sessions.Store
+	inner *cdb
 }
 
 var _ SessionStore = &sessionStoreForCAP{}
+
+func (sm *sessionStoreForCAP) SetIdentity(r *http.Request, w http.ResponseWriter, sub ctx.Sub) error {
+	session, err := sm.store.Get(r, "CAP_AUTHN")
+	if err != nil {
+		return err
+	}
+	session.Values["subject"] = sub.String()
+	sm.inner.m.Lock()
+	defer sm.inner.m.Unlock()
+	sm.inner.subs[sub.String()] = &s{sub.String(), make(map[caep.RxID]caep.EventSubject)}
+	if err := session.Save(r, w); err != nil {
+		return err
+	}
+	return nil
+}
 
 func (s *sessionStoreForCAP) IdentifySubject(r *http.Request) (ctx.Sub, error) {
 	session, err := s.store.Get(r, "CAP_AUTHN")
@@ -129,32 +147,6 @@ func (s *sessionStoreForCAP) IdentifySubject(r *http.Request) (ctx.Sub, error) {
 		return nil, fmt.Errorf("ユーザを識別できない")
 	}
 	return NewCtxSub(sub), nil
-}
-
-func (s *sessionStoreForCAP) PreferredName(r *http.Request) (string, error) {
-	session, err := s.store.Get(r, "CAP_AUTHN")
-	if err != nil {
-		return "", err
-	}
-
-	name, ok := session.Values["preferredName"].(string)
-	if !ok {
-		return "", fmt.Errorf("ユーザを識別できない")
-	}
-	return name, nil
-}
-func (s *sessionStoreForCAP) SetIdentity(r *http.Request, w http.ResponseWriter, sub ctx.Sub, preferredName string) error {
-	session, err := s.store.Get(r, "CAP_AUTHN")
-	if err != nil {
-		return err
-	}
-	session.Values["preferredName"] = preferredName
-	session.Values["subject"] = sub.String()
-	if err := session.Save(r, w); err != nil {
-
-		return err
-	}
-	return nil
 }
 
 func (s *sessionStoreForCAP) LoadRedirectBack(r *http.Request) (redirectURL string) {

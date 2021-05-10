@@ -189,12 +189,24 @@ func (p *pep) mw(next http.Handler) http.Handler {
 					http.Error(w, fmt.Sprintf("コンテキスト所有者に確認をとりに行っています"), http.StatusAccepted)
 					return
 				case ac.CtxIDNotRegistered:
+
 					var index int
 					for i, cap := range p.capList {
 						if cap == err.Option() {
 							index = i
 							break
 						}
+					}
+					session, err := p.store.Get(r, snRedirect)
+					if err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+					// callback で戻ってきた後にどの URL に遷移すべきかを一時的に記憶する
+					session.AddFlash(r.URL.String())
+					if err := session.Save(r, w); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
 					}
 					http.Redirect(w, r, fmt.Sprintf("/%s/pip/ctx/%d/rctx", p.prefix, index), http.StatusFound)
 					return
@@ -250,10 +262,36 @@ func (p *pep) setCtxID(cap string) http.HandlerFunc {
 				return
 			}
 			for k, v := range r.Form {
+				if v[0] == "" {
+					continue
+				}
 				if err := agent.SetCtxID(session, k, v[0]); err != nil {
 					http.Error(w, fmt.Sprintf("setctxid に失敗 %v", err), http.StatusInternalServerError)
 					return
 				}
+			}
+			// Redirect back する先があるかチェック
+			session, err := p.store.Get(r, snRedirect)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			// リダイレクト用のクッキーは不要に
+			session.Options.MaxAge = -1
+
+			// callback した後にどの URL に遷移すべきかをセッションから取得する
+			if flashes := session.Flashes(); len(flashes) > 0 {
+				redirecturl := flashes[0].(string)
+				if err := sessions.Save(r, w); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				http.Redirect(w, r, redirecturl, http.StatusFound)
+				return
+			}
+			if err := session.Save(r, w); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			http.Redirect(w, r, r.URL.String(), http.StatusFound)
 			return

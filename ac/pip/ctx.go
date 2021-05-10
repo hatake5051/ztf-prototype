@@ -152,6 +152,7 @@ func (pip *cPIPForRxCtx) Contexts(sub ctx.Sub, reqctxs []ac.ReqContext) ([]ctx.C
 		if err, ok := err.(*uma.ReqRPTError); ok {
 			return nil, newE(err, SubjectForCtxUnAuthorizeButReqSubmitted)
 		}
+		return nil, newEO(err, CtxIDNotRegistered, pip.capURL)
 	}
 	return pip.db.Load(sub, css)
 }
