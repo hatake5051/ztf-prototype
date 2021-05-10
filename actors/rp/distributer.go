@@ -117,6 +117,9 @@ func (db *iTranslaterForTx) BindEventSubjectToResID(rxID caep.RxID, esub *caep.E
 func (db *iTranslaterForTx) BindResIDToSub(resID uma.ResID, sub ctx.Sub, ct ctx.Type) error {
 	db.m.Lock()
 	defer db.m.Unlock()
+	if _, ok := db.ctxs[sub.String()]; !ok {
+		db.ctxs[sub.String()] = make(map[string]*c)
+	}
 	cc, ok := db.ctxs[sub.String()][ct.String()]
 	if !ok {
 		cc = &c{Scos: db.ctxBase[ct.String()]}

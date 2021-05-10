@@ -77,11 +77,27 @@ func (u *umaResSrv) list(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s := fmt.Sprintf("<html><head/><body><h1>%s さんのコンテキスト一覧</h1>", sub.String())
-	s += "<ul>"
+
 	for _, c := range ctxs {
-		s += fmt.Sprintf("<li>t: %s  ID: %s</li>", c.Type().String(), c.ID().String())
+		s += fmt.Sprintf("<h2> Context Type: %s</h2>", c.Type().String())
+		s += "<ul>"
+		s += fmt.Sprintf("<li>ID: %s</li>", c.ID().String())
+
+		s += "<li>"
+		if c.IDAtAuthZSrv() == "" {
+			s += ` <form action="../ctx" method="POST">`
+			s += fmt.Sprintf(`<input type="hidden" name="t" value="%s"> `, c.Type().String())
+			s += `<button type="submit">認可サーバ保護する</button></form>`
+
+		} else {
+			s += ` <form action="../ctx" method="GET">`
+			s += fmt.Sprintf(`<input type="hidden" name="t" value="%s"> `, c.Type().String())
+			s += `<button type="submit">詳細</button></form>`
+		}
+		s += "</li>"
+		s += "</ul>"
 	}
-	s += "</ul></body></html>"
+	s += "</body></html>"
 	w.Write([]byte(s))
 	return
 }
@@ -136,8 +152,8 @@ func (u *umaResSrv) crud(w http.ResponseWriter, r *http.Request) {
 			if err.Code == uma.ProtectionAPICodeUnAuthorized {
 				ur, _ := url.Parse(r.URL.String())
 				q := ur.Query()
-				q.Add("m", r.Method)
-				q.Add("t", ct)
+				q.Set("m", r.Method)
+				q.Set("t", ct)
 				ur.RawQuery = q.Encode()
 
 				fmt.Printf("url %s\n", ur.String())
@@ -168,7 +184,7 @@ func (u *umaResSrv) crud(w http.ResponseWriter, r *http.Request) {
 	s += fmt.Sprintf("<li>%s: %t</li>", "OwnerManagedAccess", res.OwnerManagedAccess)
 	s += fmt.Sprintf("<li>%s: %s</li>", "Scopes", strings.Join(res.Scopes, " "))
 	s += "</ul>"
-	s += `<a href="/uma/list">一覧に戻る</a>`
+	s += `<a href="../list">一覧に戻る</a>`
 	s += "</body></html>"
 	// んー、<> をエスケープしない
 	w.Write([]byte(s))

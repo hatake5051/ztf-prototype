@@ -27,6 +27,9 @@ func (conf *Conf) New(prefix string) pep.PEP {
 	}
 	for cap, cconf := range conf.PIP.Ctx {
 		db.Init(cap, cconf.Rx.Contexts)
+		if cconf.Tx.Contexts != nil {
+			db.Init(cap, cconf.Tx.Contexts)
+		}
 	}
 	udb := &iUMADB{
 		pts:  make(map[string]*uma.PermissionTicket),

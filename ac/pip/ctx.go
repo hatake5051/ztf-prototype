@@ -33,7 +33,7 @@ func (conf *CtxPIPConf) new(store SessionStoreForCPIP, ctxDB CtxDB, umaDB rx.UMA
 			cDB := &ctxDBForTxRxCtx{capURL, ctxDB}
 			tx := capconf.Tx.New(rxDB, cDB, translaterForTx, store.ForTx(capURL))
 			agent = &cPIPForTxRxCtx{
-				*rxagent,
+				rxagent,
 				store.ForTx(capURL),
 				ctxDB,
 				tx,
@@ -76,7 +76,10 @@ func (pip *cPIP) Contexts(session string, reqctxs []ac.ReqContext) ([]ctx.Ctx, e
 	for cap, reqctxs := range categorizedReqCtxs {
 		// 絶対 ok っしょ
 		v, _ := pip.agents.Load(cap)
-		agent := v.(*cPIPForRxCtx)
+		agent, ok := v.(*cPIPForRxCtx)
+		if !ok {
+			agent = v.(*cPIPForTxRxCtx).cPIPForRxCtx
+		}
 		sub := pip.session.Identify(session, cap)
 		for _, c := range agent.ManagedCtxList(session) {
 			if c.ID().String() == "" {
@@ -96,8 +99,7 @@ func (pip *cPIP) Contexts(session string, reqctxs []ac.ReqContext) ([]ctx.Ctx, e
 func (pip *cPIP) ContextAgent(cap string) (interface{}, error) {
 	// 絶対 ok っしょ
 	v, _ := pip.agents.Load(cap)
-	agent := v.(*cPIPForRxCtx)
-	return agent, nil
+	return v, nil
 }
 
 type repo struct {
@@ -169,7 +171,7 @@ func (pip *cPIPForRxCtx) ManagedCtxList(session string) []ctx.Ctx {
 }
 
 type cPIPForTxRxCtx struct {
-	cPIPForRxCtx
+	*cPIPForRxCtx
 	session tx.SessionStore
 	db      CtxDB
 	tx.Tx
@@ -200,6 +202,12 @@ var _ tx.CtxDB = &ctxDBForTxRxCtx{}
 func (db *ctxDBForTxRxCtx) LoadCtx(sub ctx.Sub, ct ctx.Type) (ctx.Ctx, error) {
 	ctxs, err := db.inner.Load(sub, []ctx.Type{ct})
 	if err != nil {
+		ctxs := db.inner.LoadAllFromCAP(db.capURL, sub)
+		for _, c := range ctxs {
+			if c.Type().String() == ct.String() {
+				return c, nil
+			}
+		}
 		return nil, err
 	}
 	return ctxs[0], nil

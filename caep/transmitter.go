@@ -8,7 +8,6 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -76,24 +75,12 @@ func (tx *tx) Router(r *mux.Router) {
 	r.Use(DumpMiddleware)
 	r.HandleFunc("/.well-known/sse-configuration", tx.WellKnown)
 
-	u, err := url.Parse(tx.conf.ConfigurationEndpoint)
-	if err != nil {
-		panic("設定をミスってるよ" + err.Error())
-	}
-	r.PathPrefix(u.Path).Methods("GET").HandlerFunc(tx.ReadStreamConfig)
-	r.PathPrefix(u.Path).Methods("POST").HandlerFunc(tx.UpdateStreamConfig)
+	r.PathPrefix("/sse/mgmt/stream").Methods("GET").HandlerFunc(tx.ReadStreamConfig)
+	r.PathPrefix("/sse/mgmt/stream").Methods("POST").HandlerFunc(tx.UpdateStreamConfig)
 
-	u, err = url.Parse(tx.conf.StatusEndpoint)
-	if err != nil {
-		panic("設定をミスってるよ" + err.Error())
-	}
-	r.PathPrefix(u.Path).Methods("GET").HandlerFunc(tx.ReadStreamStatus)
+	r.PathPrefix("/sse/mgmt/status").Methods("GET").HandlerFunc(tx.ReadStreamStatus)
 
-	u, err = url.Parse(tx.conf.AddSubjectEndpoint)
-	if err != nil {
-		panic("設定をミスってるよ" + err.Error())
-	}
-	r.PathPrefix(u.Path).Methods("POST").HandlerFunc(tx.AddSub)
+	r.PathPrefix("/sse/mgmt/subject:add").Methods("POST").HandlerFunc(tx.AddSub)
 }
 
 func DumpMiddleware(next http.Handler) http.Handler {

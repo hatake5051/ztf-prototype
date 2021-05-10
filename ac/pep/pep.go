@@ -80,6 +80,7 @@ func (p *pep) Protect(r *mux.Router) {
 		if err != nil {
 			panic("ありえん気がするわ " + err.Error())
 		}
+
 		agent, ok := a.(pip.TxRxCtxAgent)
 		if ok {
 			pa, h := agent.WellKnown()
@@ -134,7 +135,7 @@ func (p *pep) mw(next http.Handler) http.Handler {
 		}
 
 		// prefix から始まる URL path は mw 自身が使用している URL なので保護しない
-		if strings.HasPrefix(r.URL.Path, path.Join("/", p.prefix)) {
+		if strings.HasPrefix(r.URL.Path, path.Join("/", p.prefix)) || strings.HasPrefix(r.URL.Path, "/.well-known/") {
 			if contains(r.URL.Path, p.protectedPathList) {
 				// protectedPathList に含まれるところは認証情報が欲しいところ
 				if _, err := p.getSessionID(r, w); err != nil {

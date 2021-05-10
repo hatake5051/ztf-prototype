@@ -26,9 +26,15 @@ func (conf *Conf) New(rxDB RxDB, ctxDB CtxDB, trans Translater, store SessionSto
 	}
 }
 
+// Tx は ZTF でコンテキストを送信する機能を提供する
 type Tx interface {
+	// WellKnown は ZTF でコンテキスト送信者の設定情報を /.well-known/path で返すようなハンドラを用意する。
+	// 現在は CAEP Transmitter Configuration そのものである。
 	WellKnown() (path string, h http.HandlerFunc)
-	Router(r *mux.Router) (protectedPath []string)
+	// Router は Router にコンテキスト提供に必要なエンドポイントをはやしていく。
+	// CAEP transmitter のエンドポイントと、 UMA resource server のエンドポイントを生やす。
+	Router(r *mux.Router) (statefulPaths []string)
+	// Transmit はコンテキストを適切なコンテキスト受信者に送信する。
 	Transmit(c ctx.Ctx) error
 }
 
