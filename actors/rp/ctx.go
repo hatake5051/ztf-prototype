@@ -47,6 +47,17 @@ type c struct {
 	ResID   string
 }
 
+func newCtxFromBase(ctxType string, ctxScopes []string, sub ctx.Sub) *c {
+	return &c{
+		ctxType,
+		&cs{sub.Options()["sub"], sub.Options()["dev"], make(map[caep.RxID]*caep.EventSubject)},
+		ctxScopes,
+		make(map[string]string),
+		fmt.Sprintf("id:c:%s:s:%s", ctxType, sub.String()),
+		"",
+	}
+}
+
 func newCtxFromEvent(e *caep.Event, prevCtx *c) *c {
 	es := e.Subject
 	values := make(map[string]string)
@@ -55,11 +66,12 @@ func newCtxFromEvent(e *caep.Event, prevCtx *c) *c {
 	}
 
 	return &c{
-		Typ:     string(e.Type),
-		Subject: &cs{es.User[es.User["format"]], es.Device[es.Device["format"]], make(map[caep.RxID]*caep.EventSubject)},
-		Scos:    prevCtx.Scos,
-		Values:  values,
-		Id:      prevCtx.Id,
+		string(e.Type),
+		&cs{es.User[es.User["format"]], es.Device[es.Device["format"]], make(map[caep.RxID]*caep.EventSubject)},
+		prevCtx.Scos,
+		values,
+		prevCtx.Id,
+		prevCtx.ResID,
 	}
 }
 
@@ -72,11 +84,12 @@ func newCtxFromCtxID(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type, prevCtx *c) *c {
 	}
 
 	return &c{
-		Typ:     ct.String(),
-		Subject: &cs{sub.Options()["sub"], sub.Options()["dev"], make(map[caep.RxID]*caep.EventSubject)},
-		Scos:    scopes,
-		Values:  values,
-		Id:      ctxID.String(),
+		ct.String(),
+		&cs{sub.Options()["sub"], sub.Options()["dev"], make(map[caep.RxID]*caep.EventSubject)},
+		scopes,
+		values,
+		ctxID.String(),
+		prevCtx.ResID,
 	}
 }
 
@@ -89,11 +102,12 @@ func newCtxFromResID(resID uma.ResID, sub ctx.Sub, ct ctx.Type, prevCtx *c) *c {
 	}
 
 	return &c{
-		Typ:     ct.String(),
-		Subject: &cs{sub.Options()["sub"], sub.Options()["dev"], make(map[caep.RxID]*caep.EventSubject)},
-		Scos:    scopes,
-		Values:  values,
-		ResID:   string(resID),
+		ct.String(),
+		&cs{sub.Options()["sub"], sub.Options()["dev"], make(map[caep.RxID]*caep.EventSubject)},
+		scopes,
+		values,
+		prevCtx.Id,
+		string(resID),
 	}
 }
 
@@ -120,7 +134,7 @@ func (c *c) ID() ctx.ID {
 }
 
 func (c *c) IDAtAuthZSrv() string {
-	return ""
+	return c.ResID
 }
 
 func (c *c) Sub() ctx.Sub {

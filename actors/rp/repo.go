@@ -145,11 +145,11 @@ func (db *iCtxDB) Load(sub ctx.Sub, cts []ctx.Type) ([]ctx.Ctx, error) {
 	defer db.m.RUnlock()
 	var ret []ctx.Ctx
 	for _, ct := range cts {
-		v, ok := db.ctxs[sub.String()]
-		if !ok {
-			continue
+		if v, ok := db.ctxs[sub.String()]; ok {
+			if c, ok := v[ct.String()]; ok {
+				ret = append(ret, c)
+			}
 		}
-		ret = append(ret, v[ct.String()])
 	}
 	if len(ret) == 0 {
 		return nil, fmt.Errorf("sub(%v) の cts(%v) は一つもない", sub, cts)
@@ -162,23 +162,17 @@ func (db *iCtxDB) LoadAllFromCAP(capURL string, sub ctx.Sub) []ctx.Ctx {
 	defer db.m.Unlock()
 	var ctxs []ctx.Ctx
 	ctxBase := db.capBase[capURL]
-
 	for ct, css := range ctxBase {
-		c := &c{}
+		var c *c
 		if v, ok := db.ctxs[sub.String()]; ok {
 			if cc, ok := v[ct]; ok {
 				c = cc
 			} else {
-				c.Typ = ct
-				c.Scos = css
-				c.Values = make(map[string]string)
+				c = newCtxFromBase(ct, css, sub)
 			}
 		} else {
-			c.Typ = ct
-			c.Scos = css
-			c.Values = make(map[string]string)
+			c = newCtxFromBase(ct, css, sub)
 		}
-
 		ctxs = append(ctxs, c)
 	}
 	return ctxs

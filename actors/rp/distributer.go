@@ -122,7 +122,7 @@ func (db *iTranslaterForTx) BindResIDToSub(resID uma.ResID, sub ctx.Sub, ct ctx.
 	}
 	cc, ok := db.ctxs[sub.String()][ct.String()]
 	if !ok {
-		cc = &c{Scos: db.ctxBase[ct.String()]}
+		cc = newCtxFromBase(ct.String(), db.ctxBase[ct.String()], sub)
 	}
 	db.ctxs[sub.String()][ct.String()] = newCtxFromResID(resID, sub, ct, cc)
 	return nil
