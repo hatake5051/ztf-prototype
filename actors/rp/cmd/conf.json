@@ -53,7 +53,7 @@
           },
           "uma": {
             "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
-            "client_id": "cap1",
+            "client_id": "rp1",
             "client_secret": "",
             "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/uma/pat/callback",
             "jwks_uri": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/certs"
@@ -69,10 +69,10 @@
                 "https://schemas.openid.net/secevent/risc/delivery-method/push"
               ],
               "status_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/status",
-              "configuration_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/stream",
-              "add_subject_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/subject:add",
-              "remove_subject_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/subject:remove",
-              "verification_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/verify"
+              "configuration_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/stream",
+              "add_subject_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/subject:add",
+              "remove_subject_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/subject:remove",
+              "verification_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/verify"
             },
             "receivers": {
               "rp1": {
