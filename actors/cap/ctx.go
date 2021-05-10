@@ -82,14 +82,6 @@ type cdb struct {
 
 var _ tx.CtxDB = &cdb{}
 
-func (db *cdb) All() []ctx.Type {
-	var ret []ctx.Type
-	for k, _ := range db.cBase {
-		ret = append(ret, ctx.NewCtxType(k))
-	}
-	return ret
-}
-
 func (db *cdb) LoadCtx(sub ctx.Sub, ct ctx.Type) (ctx.Ctx, error) {
 	db.m.Lock()
 	defer db.m.Unlock()
@@ -115,8 +107,25 @@ func (db *cdb) LoadAll(sub ctx.Sub) ([]ctx.Ctx, error) {
 			ans = append(ans, c)
 		}
 	}
-	if len(ans) == 0 {
-		return nil, fmt.Errorf("cbd.LoadAll(%v) の結果は 0", sub)
+	if len(ans) != len(db.cBase) {
+		for ct, cv := range db.cBase {
+			exits := false
+			for _, a := range ans {
+				if a.Type().String() == ct {
+					exits = true
+					break
+				}
+			}
+			if !exits {
+				ans = append(ans, &c{
+					sub:    &s{sub.String(), make(map[caep.RxID]caep.EventSubject)},
+					typ:    cv.typ,
+					scopes: cv.scopes,
+					values: make(map[string]string),
+				})
+			}
+		}
+		return ans, nil
 	}
 	return ans, nil
 }

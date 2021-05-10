@@ -85,12 +85,12 @@ func (u *umaResSrv) list(w http.ResponseWriter, r *http.Request) {
 
 		s += "<li>"
 		if c.IDAtAuthZSrv() == "" {
-			s += ` <form action="../ctx" method="POST">`
+			s += ` <form action="ctx" method="POST">`
 			s += fmt.Sprintf(`<input type="hidden" name="t" value="%s"> `, c.Type().String())
 			s += `<button type="submit">認可サーバ保護する</button></form>`
 
 		} else {
-			s += ` <form action="../ctx" method="GET">`
+			s += ` <form action="ctx" method="GET">`
 			s += fmt.Sprintf(`<input type="hidden" name="t" value="%s"> `, c.Type().String())
 			s += `<button type="submit">詳細</button></form>`
 		}
@@ -184,7 +184,7 @@ func (u *umaResSrv) crud(w http.ResponseWriter, r *http.Request) {
 	s += fmt.Sprintf("<li>%s: %t</li>", "OwnerManagedAccess", res.OwnerManagedAccess)
 	s += fmt.Sprintf("<li>%s: %s</li>", "Scopes", strings.Join(res.Scopes, " "))
 	s += "</ul>"
-	s += `<a href="../list">一覧に戻る</a>`
+	s += `<a href="list">一覧に戻る</a>`
 	s += "</body></html>"
 	// んー、<> をエスケープしない
 	w.Write([]byte(s))

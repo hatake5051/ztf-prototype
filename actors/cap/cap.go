@@ -45,15 +45,15 @@ func (conf *Conf) New() *mux.Router {
 	cap := &cap{
 		store: store,
 		rp:    conf.CAP.Openid.New(),
-		all:   d.All,
 	}
 
 	r := mux.NewRouter()
 	r.HandleFunc(tx.WellKnown())
-	tx.Router(r)
+	statefulPaths := tx.Router(r)
+	for _, p := range statefulPaths {
+		cap.statefulPaths = append(cap.statefulPaths, p)
+	}
 
-	r.Handle("/", cap)
-	// r.HandleFunc("/ctx/recv", cap.Recv)
 	r.HandleFunc("/oidc/callback", cap.OIDCCallback)
 	r.Use(cap.OIDCMW)
 
@@ -68,41 +68,15 @@ type SessionStore interface {
 }
 
 type cap struct {
-	rp    openid.RP
-	store SessionStore
-	all   func() []ctx.Type
-}
-
-func (c *cap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	name, err := c.store.PreferredName(r)
-	if err != nil {
-		http.Error(w, "ユーザを識別できません", http.StatusUnauthorized)
-		return
-	}
-	s := fmt.Sprintf("<html><head/><body><h1>%sさん、こんにちは</h1>", name)
-	s += "<h1>コンテキスト一覧</h1>"
-	s += "<ul>"
-	for _, ctxType := range c.all() {
-		s += fmt.Sprintf("<li>ctx(%s)は認可サーバで保護", ctxType)
-
-		s += `されていません。=> <form action="/uma/ctx" method="POST">`
-		s += fmt.Sprintf(`<input type="hidden" name="t" value="%s"> `, ctxType)
-		s += `<button type="submit">保護する</button></form>`
-
-		s += "</li>"
-	}
-	s += "</ul></body></html>"
-	w.Write([]byte(s))
-
+	rp            openid.RP
+	store         SessionStore
+	statefulPaths []string
 }
 
 func (c *cap) OIDCMW(next http.Handler) http.Handler {
-	protectedPathList := []string{
-		"/", "/list", "/uma/list", "/uma/ctx",
-	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !contains(protectedPathList, r.URL.Path) {
+		if !contains(c.statefulPaths, r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
