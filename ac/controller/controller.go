@@ -13,6 +13,9 @@ type Controller interface {
 	// AskForAuthorization は PEP が PDP に認可判断を尋ねる
 	// ユーザの識別がまだ、認証がまだ、コンテキストの取得がまだの場合などはエラーを返す
 	AskForAuthorization(session string, res ac.Resource, a ac.Action) error
+	// IsAuthenticated はこの session で subject が認証済みかどうか判定する。
+	// 認証済みでない場合は、 ac.SubjectNotAuthenticated のエラーを返す
+	IsAuthenticated(session string) error
 	// AuthNAgent は Controller の代わりにユーザを認証するエージェントを返す。
 	// idp に IdP の URL を設定することで使用する IdP を選択できる
 	// このエージェントは OpenID Connect RP としてユーザの認証結果を受け取る。
@@ -75,6 +78,20 @@ func (c *ctrl) AskForAuthorization(session string, res ac.Resource, a ac.Action)
 		return err
 	}
 	return c.PDP.Decision(sub, res, a, ctxs)
+}
+
+func (c *ctrl) IsAuthenticated(session string) error {
+	_, err := c.PIP.Subject(session)
+	if err != nil {
+		if err, ok := err.(pip.Error); ok {
+			if err.Code() == pip.SubjectUnAuthenticated {
+				return newE(err, ac.SubjectNotAuthenticated)
+			}
+			return err
+		}
+		return err
+	}
+	return nil
 }
 
 func (c *ctrl) AuthNAgent(idp string) (pip.AuthNAgent, error) {

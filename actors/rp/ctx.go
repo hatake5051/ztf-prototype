@@ -3,6 +3,7 @@ package rp
 import (
 	"fmt"
 
+	"github.com/hatake5051/ztf-prototype/ac"
 	"github.com/hatake5051/ztf-prototype/caep"
 	"github.com/hatake5051/ztf-prototype/ctx"
 	"github.com/hatake5051/ztf-prototype/uma"
@@ -14,6 +15,10 @@ func NewCtxSub(raw string) ctx.Sub {
 
 func NewCtxSubFromEventSubject(es *caep.EventSubject) ctx.Sub {
 	return &cs{es.User[es.User["format"]], es.Device[es.Device["format"]], make(map[caep.RxID]*caep.EventSubject)}
+}
+
+func newCtxSubFromAcSubject(asub ac.Subject) ctx.Sub {
+	return &cs{asub.ID(), "", make(map[caep.RxID]*caep.EventSubject)}
 }
 
 type cs struct {

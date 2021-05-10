@@ -65,14 +65,15 @@ type pep struct {
 }
 
 func (p *pep) Protect(r *mux.Router) {
-	ssub := r.PathPrefix(path.Join("/", p.prefix, "pip/sub")).Subrouter()
+	spipPathBase := path.Join("/", p.prefix, "pip/sub")
+	ssub := r.PathPrefix(spipPathBase).Subrouter()
 	for i, idp := range p.idpList {
 		ssub.PathPrefix(fmt.Sprintf("/%d/login", i)).HandlerFunc(p.redirect(idp))
 		ssub.PathPrefix(fmt.Sprintf("/%d/callback", i)).HandlerFunc(p.callback(idp))
 	}
 
-	sctx := r.PathPrefix(path.Join("/", p.prefix, "pip/ctx")).Subrouter()
-
+	cpipPathBase := path.Join("/", p.prefix, "pip/ctx")
+	sctx := r.PathPrefix(cpipPathBase).Subrouter()
 	for i, cap := range p.capList {
 		sctx.PathPrefix(fmt.Sprintf("/%d/recv", i)).HandlerFunc(p.recvCtx(cap))
 		sctx.PathPrefix(fmt.Sprintf("/%d/rctx", i)).HandlerFunc(p.setCtxID(cap))
@@ -80,13 +81,15 @@ func (p *pep) Protect(r *mux.Router) {
 		if err != nil {
 			panic("ありえん気がするわ " + err.Error())
 		}
-
 		agent, ok := a.(pip.TxRxCtxAgent)
 		if ok {
+			txctxPathBase := path.Join(cpipPathBase, fmt.Sprintf("/%d/tx", i))
 			pa, h := agent.WellKnown()
-			r.Handle(path.Join("/.well-known", pa), h)
+			r.Handle(path.Join("/.well-known", path.Join(pa, txctxPathBase)), h)
 			plist := agent.Router(sctx.PathPrefix(fmt.Sprintf("/%d/tx", i)).Subrouter())
-			p.protectedPathList = append(p.protectedPathList, plist...)
+			for _, pp := range plist {
+				p.protectedPathList = append(p.protectedPathList, path.Join(txctxPathBase, pp))
+			}
 			p.collectors = append(p.collectors, agent.Collect)
 		}
 	}
@@ -138,8 +141,18 @@ func (p *pep) mw(next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, path.Join("/", p.prefix)) || strings.HasPrefix(r.URL.Path, "/.well-known/") {
 			if contains(r.URL.Path, p.protectedPathList) {
 				// protectedPathList に含まれるところは認証情報が欲しいところ
-				if _, err := p.getSessionID(r, w); err != nil {
+				session, err := p.getSessionID(r, w)
+				if err != nil {
+					// セッションないとかもうむり
 					http.Error(w, "session: cookie-pep is not exist in store :"+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if err := p.ctrl.IsAuthenticated(session); err != nil {
+					if err, ok := err.(ac.Error); ok && err.ID() == ac.SubjectNotAuthenticated {
+						p.login(w, r)
+						return
+					}
+					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
 			}

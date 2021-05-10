@@ -60,7 +60,7 @@
           },
           "caep": {
             "metadata": {
-              "issuer": "http://rp1.ztf-proto.k3.ipv6.mobi",
+              "issuer": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx",
               "jwks_uri": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/certs",
               "supported_versions": [
                 "2.0"
@@ -76,8 +76,8 @@
             },
             "receivers": {
               "rp1": {
-                "client_id": "rp1",
-                "host": "http://rp1.ztf-proto.k3.ipv6.mobi"
+                "client_id": "cap1",
+                "host": "http://cap1.ztf-proto.k3.ipv6.mobi"
               }
             }
           }

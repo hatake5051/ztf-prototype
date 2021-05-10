@@ -17,6 +17,7 @@ func (conf *Conf) New(prefix string) pep.PEP {
 	sstore := &iSessionStoreForSPIP{r: make(map[string]*s)}
 	cstore := &iSessionStoreForCPIP{
 		r:               make(map[string]map[string]*cs),
+		spipSM:          sstore,
 		store:           store,
 		sessionNme:      "AC_PEP_SESSION",
 		sessionValueKey: "PEP_SESSION_ID"}

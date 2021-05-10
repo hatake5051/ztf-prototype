@@ -44,7 +44,8 @@ func (sm *iSessionStoreForSPIP) SetIDToken(session string, idt openid.Token) err
 type iSessionStoreForCPIP struct {
 	m sync.RWMutex
 	r map[string]map[string]*cs // session -> capURL -> ctx.sub
-
+	// コンテキスト送信するために必要
+	spipSM          *iSessionStoreForSPIP
 	store           sessions.Store
 	sessionNme      string
 	sessionValueKey string
@@ -94,7 +95,11 @@ func (sm *iSessionStoreForCPIPTx) IdentifySubject(r *http.Request) (ctx.Sub, err
 	if !ok {
 		return nil, fmt.Errorf("セッションが確立していない %v", err)
 	}
-	return sm.Identify(v.(string), sm.capURL), nil
+	asub, err := sm.spipSM.Identify(v.(string))
+	if err != nil {
+		return nil, fmt.Errorf("subject の認証が終わっていない %v", err)
+	}
+	return newCtxSubFromAcSubject(asub), nil
 }
 
 func (sm *iSessionStoreForCPIPTx) LoadRedirectBack(r *http.Request) (redirectURL string) {
