@@ -17,12 +17,8 @@ func (conf *recvConf) new(d *distributer) *recv {
 	dummyreqs := map[string][]rx.ReqCtx{
 		"rp1": {
 			rx.ReqCtx{
-				Type:   ctx.NewCtxType("ctx-rp1-1"),
-				Scopes: []ctx.Scope{ctx.NewCtxScope("rp1:scope1"), ctx.NewCtxScope("rp1:scope2")},
-			},
-			rx.ReqCtx{
-				Type:   ctx.NewCtxType("ctx-rp1-2"),
-				Scopes: []ctx.Scope{ctx.NewCtxScope("rp1:scope111"), ctx.NewCtxScope("rp1:scope2")},
+				Type:   ctx.NewCtxType("ip"),
+				Scopes: []ctx.Scope{ctx.NewCtxScope("raw")},
 			},
 		},
 	}
@@ -41,7 +37,10 @@ func (r *recv) SaveStatus(rxID caep.RxID, status *caep.StreamStatus) error {
 		return err
 	}
 	sub := r.cdb.subs[status.Subject.Identifier()]
-	rxID2rpURL := map[caep.RxID]string{caep.RxID("rp1"): "http://rp1.ztf-proto.k3.ipv6.mobi"}
+	rxID2rpURL := map[caep.RxID]string{
+		caep.RxID("rp1"): "http://rp1.ztf-proto.k3.ipv6.mobi",
+		caep.RxID("rp2"): "http://rp2.ztf-proto.k3.ipv6.mobi",
+	}
 	return r.addSub(rxID2rpURL[rxID], sub, r.reqs[string(rxID)])
 }
 

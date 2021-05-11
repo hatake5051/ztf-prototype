@@ -158,6 +158,7 @@ func (rx *rx) addSub(sub ctx.Sub, reqs []ReqCtx) error {
 	}
 	err = rx.c.AddSubject(reqadd)
 	if err == nil {
+		fmt.Printf("caeprecv.AddSub(%#v,%#v) succeeded\n", sub, reqs)
 		return nil
 	}
 	fmt.Printf("caeprecv.AddSub failed %#v\n", err)
@@ -171,6 +172,7 @@ func (rx *rx) addSub(sub ctx.Sub, reqs []ReqCtx) error {
 			return err
 		}
 		if err := rx.u.ReqRPT(sub); err != nil {
+			fmt.Printf("rx.u.ReqRPT(%#v) failed %#v\n", sub, err)
 			return err
 		}
 		return rx.c.AddSubject(reqadd)
