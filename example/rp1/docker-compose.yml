@@ -1,6 +1,6 @@
 version: '3'
 services:
-  rp:
+  rp1:
     build:
       context: ../../
       dockerfile: ./example/rp1/Dockerfile

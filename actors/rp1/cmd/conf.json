@@ -1,0 +1,88 @@
+{
+  "pip": {
+    "sub": {
+      "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp": {
+        "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp",
+        "client_id": "rp1",
+        "client_secret": "",
+        "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/0/callback"
+      }
+    },
+    "ctx": {
+      "http://cap1.ztf-proto.k3.ipv6.mobi": {
+        "rx": {
+          "contexts": {
+            "ctx-1": [
+              "scope1",
+              "scope2"
+            ],
+            "ctx-2": [
+              "scope111",
+              "scope2"
+            ]
+          },
+          "uma": {
+            "req_party_credential": {
+              "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+              "name": "rp1",
+              "password": "rp1"
+            },
+            "client_credential": {
+              "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+              "token_url": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/token",
+              "id": "rp1",
+              "secret": ""
+            }
+          },
+          "caep": {
+            "host": "http://rp1.ztf-proto.k3.ipv6.mobi",
+            "pushed_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/recv",
+            "iss": "http://cap1.ztf-proto.k3.ipv6.mobi"
+          }
+        },
+        "tx": {
+          "contexts": {
+            "ctx-rp1-1": [
+              "rp1:scope1",
+              "rp1:scope2"
+            ],
+            "ctx-rp1-2": [
+              "rp1:scope111",
+              "rp1:scope2"
+            ]
+          },
+          "uma": {
+            "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+            "client_id": "rp1",
+            "client_secret": "",
+            "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/uma/pat/callback",
+            "jwks_uri": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/certs"
+          },
+          "caep": {
+            "metadata": {
+              "issuer": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx",
+              "jwks_uri": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/certs",
+              "supported_versions": [
+                "2.0"
+              ],
+              "delivery_methods_supported": [
+                "https://schemas.openid.net/secevent/risc/delivery-method/push"
+              ],
+              "status_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/status",
+              "configuration_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/stream",
+              "add_subject_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/subject:add",
+              "remove_subject_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/subject:remove",
+              "verification_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/verify"
+            },
+            "receivers": {
+              "cap1": {
+                "client_id": "cap1",
+                "host": "http://cap1.ztf-proto.k3.ipv6.mobi"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

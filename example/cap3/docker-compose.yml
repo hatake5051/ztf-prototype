@@ -1,0 +1,21 @@
+version: '3'
+services:
+  cap3:
+    build:
+      context: ../../
+      dockerfile: ./example/cap3/Dockerfile
+    volumes:
+      - type: bind
+        source: "../../"
+        target: "/go/src/app"
+    hostname: cap3.ztf-proto.k3.ipv6.mobi
+    environment:
+      VIRTUAL_HOST: cap3.ztf-proto.k3.ipv6.mobi
+    ports:
+    - "80"
+    networks:
+    - reverse-proxy-net
+
+networks:
+  reverse-proxy-net:
+    external: true

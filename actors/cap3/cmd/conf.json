@@ -1,0 +1,84 @@
+{
+  "cap": {
+    "openid": {
+      "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/cap3-idp",
+      "client_id": "cap3",
+      "client_secret": "",
+      "redirect_url": "http://cap3.ztf-proto.k3.ipv6.mobi/oidc/callback"
+    }
+  },
+  "tx": {
+    "contexts": {
+      "ctx-1": [
+        "scope1",
+        "scope2"
+      ],
+      "ctx-2": [
+        "scope111",
+        "scope2"
+      ]
+    },
+    "uma": {
+      "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+      "client_id": "cap3",
+      "client_secret": "",
+      "redirect_url": "http://cap3.ztf-proto.k3.ipv6.mobi/uma/pat/callback",
+      "jwks_uri": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/certs"
+    },
+    "caep": {
+      "metadata": {
+        "issuer": "http://cap3.ztf-proto.k3.ipv6.mobi",
+        "jwks_uri": "http://cap3.ztf-proto.k3.ipv6.mobi/auth/certs",
+        "supported_versions": [
+          "2.0"
+        ],
+        "delivery_methods_supported": [
+          "https://schemas.openid.net/secevent/risc/delivery-method/push"
+        ],
+        "status_endpoint": "http://cap3.ztf-proto.k3.ipv6.mobi/sse/mgmt/status",
+        "configuration_endpoint": "http://cap3.ztf-proto.k3.ipv6.mobi/sse/mgmt/stream",
+        "add_subject_endpoint": "http://cap3.ztf-proto.k3.ipv6.mobi/sse/mgmt/subject:add",
+        "remove_subject_endpoint": "http://cap3.ztf-proto.k3.ipv6.mobi/sse/mgmt/subject:remove",
+        "verification_endpoint": "http://cap3.ztf-proto.k3.ipv6.mobi/sse/mgmt/verify"
+      },
+      "receivers": {
+        "rp1": {
+          "client_id": "rp1",
+          "host": "http://rp1.ztf-proto.k3.ipv6.mobi"
+        }
+      }
+    }
+  },
+  "rx": {
+    "http://rp1.ztf-proto.k3.ipv6.mobi": {
+      "contexts": {
+        "ctx-rp1-1": [
+          "rp1:scope1",
+          "rp1:scope2"
+        ],
+        "ctx-rp1-2": [
+          "rp1:scope111",
+          "rp1:scope2"
+        ]
+      },
+      "uma": {
+        "req_party_credential": {
+          "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+          "name": "cap3",
+          "password": "cap3"
+        },
+        "client_credential": {
+          "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+          "token_url": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/token",
+          "id": "cap3",
+          "secret": ""
+        }
+      },
+      "caep": {
+        "host": "http://cap3.ztf-proto.k3.ipv6.mobi",
+        "pushed_endpoint": "http://cap3.ztf-proto.k3.ipv6.mobi/rx/0/recv",
+        "iss": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx"
+      }
+    }
+  }
+}
