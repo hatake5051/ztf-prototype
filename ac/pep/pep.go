@@ -341,7 +341,7 @@ func (p *pep) login(w http.ResponseWriter, r *http.Request) {
 	s := "<html><head/><body><h1>ログインする IdP を選択</h1>"
 	s += "<ul>"
 	for index, idp := range p.idpList {
-		s += fmt.Sprintf(`<li>%s で<a href="/%s/pip/sub/%d/login">ログイン</a></li>`, idp, p.prefix, index)
+		s += fmt.Sprintf(`<li>%s で<a href="/%s/pip/sub/%s/login">ログイン</a></li>`, idp, p.prefix, index)
 	}
 	s += "</ul></body></html>"
 	w.Write([]byte(s))
