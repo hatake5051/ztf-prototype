@@ -1,24 +1,27 @@
 {
   "pip": {
     "sub": {
-      "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp": {
-        "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/rp1-idp",
+      "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp1": {
+        "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp1",
         "client_id": "rp1",
         "client_secret": "",
         "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/0/callback"
+      },
+      "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp2": {
+        "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp2",
+        "client_id": "rp1",
+        "client_secret": "",
+        "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/1/callback"
       }
     },
     "ctx": {
       "http://cap1.ztf-proto.k3.ipv6.mobi": {
         "rx": {
           "contexts": {
-            "ctx-1": [
-              "scope1",
-              "scope2"
-            ],
-            "ctx-2": [
-              "scope111",
-              "scope2"
+            "device-location": [
+              "ip",
+              "used:ip",
+              "wifi-ap:ip"
             ]
           },
           "uma": {
@@ -42,13 +45,8 @@
         },
         "tx": {
           "contexts": {
-            "ctx-rp1-1": [
-              "rp1:scope1",
-              "rp1:scope2"
-            ],
-            "ctx-rp1-2": [
-              "rp1:scope111",
-              "rp1:scope2"
+            "ip": [
+              "raw"
             ]
           },
           "uma": {
