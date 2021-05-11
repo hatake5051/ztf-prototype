@@ -14,7 +14,7 @@
         "realm": "cap1",
         "rx": {
           "contexts": {
-            "device-location": [
+            "http://cap1.ztf-proto.k3.ipv6.mobi/ctxtype/device-location": [
               "ip",
               "used:ip",
               "wifi-ap"
@@ -41,7 +41,7 @@
         },
         "tx": {
           "contexts": {
-            "ip": [
+            "http://rp2.ztf-proto.k3.ipv6.mobi/ctxtype/ip": [
               "raw"
             ]
           },
@@ -54,7 +54,7 @@
           },
           "caep": {
             "metadata": {
-              "issuer": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx",
+              "issuer": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx",
               "jwks_uri": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/certs",
               "supported_versions": [
                 "2.0"
@@ -81,7 +81,7 @@
         "realm": "cap2",
         "rx": {
           "contexts": {
-            "device-health": [
+            "http://cap2.ztf-proto.k3.ipv6.mobi/ctxtype/device-health": [
               "up-to-date",
               "raw"
             ]

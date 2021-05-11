@@ -1,4 +1,4 @@
-package rp1
+package rp2
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ var _ pdp.PDP = &mypdp{}
 func (pdp *mypdp) NotifiedOfRequest(s ac.Subject, r ac.Resource, a ac.Action) (reqctxs []ac.ReqContext, deny bool) {
 	fmt.Println("pdp.NotifiedRequest start...")
 	fmt.Printf("sub(%s) wants to do action(%s) on res(%s) without context\n", s.ID(), a.ID(), r.ID())
-	req1 := &reqctx{"http://cap1.ztf-proto.k3.ipv6.mobi/ctxtype/device-location", []string{"ip", "wifi-ap"}}
+	req1 := &reqctx{"http://cap1.ztf-proto.k3.ipv6.mobi/ctxtype/device-location", []string{"used:ip"}}
 	return []ac.ReqContext{req1.toACReq()}, false
 }
 

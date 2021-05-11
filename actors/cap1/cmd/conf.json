@@ -9,7 +9,7 @@
   },
   "tx": {
     "contexts": {
-      "device-location": [
+      "http://cap1.ztf-proto.k3.ipv6.mobi/ctxtype/device-location": [
         "ip",
         "used:ip",
         "wifi-ap"
@@ -50,7 +50,7 @@
     "http://rp1.ztf-proto.k3.ipv6.mobi": {
       "realm": "rp1",
       "contexts": {
-        "ip": [
+        "http://rp1.ztf-proto.k3.ipv6.mobi/ctxtype/ip": [
           "raw"
         ]
       },
@@ -76,7 +76,7 @@
     "http://rp2.ztf-proto.k3.ipv6.mobi": {
       "realm": "rp2",
       "contexts": {
-        "ip": [
+        "http://rp2.ztf-proto.k3.ipv6.mobi/ctxtype/ip": [
           "raw"
         ]
       },
@@ -102,7 +102,7 @@
     "http://cap3.ztf-proto.k3.ipv6.mobi": {
       "realm": "cap3",
       "contexts": {
-        "wifi-ap": [
+        "http://cap3.ztf-proto.k3.ipv6.mobi/ctxtype/wifi-ap": [
           "device-exist"
         ]
       },

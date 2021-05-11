@@ -17,7 +17,13 @@ func (conf *recvConf) new(d *distributer) *recv {
 	dummyreqs := map[string][]rx.ReqCtx{
 		"rp1": {
 			rx.ReqCtx{
-				Type:   ctx.NewCtxType("ip"),
+				Type:   ctx.NewCtxType("http://rp1.ztf-proto.k3.ipv6.mobi/ctxtype/ip"),
+				Scopes: []ctx.Scope{ctx.NewCtxScope("raw")},
+			},
+		},
+		"rp2": {
+			rx.ReqCtx{
+				Type:   ctx.NewCtxType("http://rp2.ztf-proto.k3.ipv6.mobi/ctxtype/ip"),
 				Scopes: []ctx.Scope{ctx.NewCtxScope("raw")},
 			},
 		},

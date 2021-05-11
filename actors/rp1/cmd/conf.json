@@ -21,7 +21,7 @@
         "realm": "cap1",
         "rx": {
           "contexts": {
-            "device-location": [
+            "http://cap1.ztf-proto.k3.ipv6.mobi/ctxtype/device-location": [
               "ip",
               "used:ip",
               "wifi-ap"
@@ -48,7 +48,7 @@
         },
         "tx": {
           "contexts": {
-            "ip": [
+            "http://rp1.ztf-proto.k3.ipv6.mobi/ctxtype/ip": [
               "raw"
             ]
           },

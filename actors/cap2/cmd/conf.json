@@ -9,7 +9,7 @@
   },
   "tx": {
     "contexts": {
-      "device-health": [
+      "http://cap2.ztf-proto.k3.ipv6.mobi/ctxtype/device-health": [
         "up-to-date",
         "raw"
       ]

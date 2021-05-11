@@ -166,6 +166,7 @@ func (rx *rx) addSub(sub ctx.Sub, reqs []ReqCtx) error {
 	if !ok {
 		return err
 	}
+	fmt.Printf("caeprecv.AddSub failed caep.RecvError %#v", e)
 	if e.Code() == caep.RecvErrorCodeUnAuthorized {
 		resp := e.Option().(*http.Response)
 		if err := rx.u.ExtractPermissionTicket(sub, resp); err != nil {

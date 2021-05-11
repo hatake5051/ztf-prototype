@@ -1,7 +1,6 @@
 package rp2
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/gorilla/sessions"
@@ -39,10 +38,7 @@ func (conf *Conf) New(prefix string) pep.PEP {
 
 	pip := conf.PIP.New(sstore, cstore, db, udb, db, &rxdb{}, &iTranslaterForTx{db})
 	// PDP の構成
-	pdp, err := conf.PDP.New()
-	if err != nil {
-		panic(fmt.Sprintf("PDP の構成に失敗 %v", err))
-	}
+	pdp := &mypdp{}
 	// controller の構成
 	ctrl := controller.New(pip, pdp)
 
