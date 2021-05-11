@@ -227,7 +227,6 @@ func (db *cdb) BindResIDToSub(resID uma.ResID, csub ctx.Sub, ct ctx.Type) error 
 	base.sub = ss
 	base.id = fmt.Sprintf("id:c:%s:s:%s", ct.String(), ss.String())
 	db.ctxs[ss.String()][ct.String()] = &base
-
 	return nil
 }
 

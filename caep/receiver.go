@@ -31,7 +31,7 @@ type RecvConf struct {
 func (conf *RecvConf) New(authHeadersetter AuthHeaderSetter) Rx {
 	tr, err := NewTransmitter(conf.Issuer)
 	if err != nil {
-		panic(fmt.Sprintf("Transmitterの設定情報の取得に失敗 %v", err))
+		panic(fmt.Sprintf("Transmitterの設定情報の取得に失敗 from %s %v", conf.Issuer, err))
 	}
 	r := &recvConf{
 		data: Receiver{

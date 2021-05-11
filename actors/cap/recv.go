@@ -14,37 +14,42 @@ import (
 type recvConf map[string]rx.Conf
 
 func (conf *recvConf) new(d *distributer) *recv {
-	recv := &recv{}
-	dd := &ctxDBForRx{d}
-	t := &translaterForRx{d}
-	for rpURL, rxconf := range *conf {
-		u := &iUMADB{sync.RWMutex{}, make(map[string]*uma.PermissionTicket), make(map[string]*uma.RPT)}
-		rx := rxconf.New(dd, u, t)
-		recv.agents.Store(rpURL, rx)
-	}
-	return recv
+	return &recv{distributer: d, conf: *conf}
 }
 
 type recv struct {
-	reqs   map[string][]rx.ReqCtx
-	agents sync.Map
+	reqs  map[string][]rx.ReqCtx
+	alist sync.Map
+	conf  recvConf
 	*distributer
 }
 
 func (r *recv) SaveStatus(rxID caep.RxID, status *caep.StreamStatus) error {
-	if err := r.SaveStatus(rxID, status); err != nil {
+	if err := r.distributer.SaveStatus(rxID, status); err != nil {
 		return err
 	}
 	sub := r.cdb.subs[status.Subject.Identifier()]
-	return r.addSub(string(rxID), sub, r.reqs[string(rxID)])
+	rxID2rpURL := map[caep.RxID]string{caep.RxID("rp1"): "http://rp1.ztf-proto.k3.ipv6.mobi"}
+	return r.addSub(rxID2rpURL[rxID], sub, r.reqs[string(rxID)])
+}
+
+func (recv *recv) agent(rpURL string) rx.Rx {
+	v, ok := recv.alist.Load(rpURL)
+	if ok {
+		return v.(rx.Rx)
+	}
+	rxconf, ok := recv.conf[rpURL]
+	if !ok {
+		panic(fmt.Sprintf("%s の agent はコンフィグにない", rpURL))
+	}
+	u := &iUMADB{sync.RWMutex{}, make(map[string]*uma.PermissionTicket), make(map[string]*uma.RPT)}
+	rx := rxconf.New(&ctxDBForRx{recv.distributer}, u, &translaterForRx{recv.distributer})
+	recv.alist.Store(rpURL, rx)
+	return rx
 }
 
 func (recv *recv) addSub(rpURL string, sub ctx.Sub, reqs []rx.ReqCtx) error {
-	v, ok := recv.agents.Load(rpURL)
-	if !ok {
-		return fmt.Errorf("recv.agents.Load(%s) failed", rpURL)
-	}
-	a := v.(rx.Rx)
+	a := recv.agent(rpURL)
 	if err := a.AddSub(sub, reqs); err != nil {
 		if err, ok := err.(*uma.ReqRPTError); ok {
 			return newE(err, SubjectForCtxUnAuthorizeButReqSubmitted)
@@ -55,11 +60,7 @@ func (recv *recv) addSub(rpURL string, sub ctx.Sub, reqs []rx.ReqCtx) error {
 }
 
 func (recv *recv) SetCtxID(rpURL string, sub ctx.Sub, ctxType, ctxID string) error {
-	v, ok := recv.agents.Load(rpURL)
-	if !ok {
-		return fmt.Errorf("recv.agents.Load(%s) failed", rpURL)
-	}
-	a := v.(rx.Rx)
+	a := recv.agent(rpURL)
 	return a.RegisterCtxID(sub, ctx.NewCtxType(ctxType), ctx.NewCtxID(ctxID))
 }
 
@@ -84,11 +85,7 @@ func (recv *recv) MnagedCtxList(rpURL string, sub ctx.Sub) []ctx.Ctx {
 }
 
 func (recv *recv) RecvCtx(rpURL string, r *http.Request) error {
-	v, ok := recv.agents.Load(rpURL)
-	if !ok {
-		return fmt.Errorf("recv.agents.Load(%s) failed", rpURL)
-	}
-	a := v.(rx.Rx)
+	a := recv.agent(rpURL)
 	return a.RecvCtx(r)
 }
 

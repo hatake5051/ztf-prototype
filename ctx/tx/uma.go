@@ -54,21 +54,33 @@ func (u *umaResSrv) list(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ユーザを識別できません", http.StatusUnauthorized)
 		return
 	}
-	// resList, err := u.uma.List(sub.UMAResSrv())
-	// if err != nil {
-	// 	if err, ok := err.(*uma.ProtectionAPIError); ok {
-	// 		if err.Code == uma.ProtectionAPICodeUnAuthorized {
-	// 			if err := u.store.SetRedirectBack(r, w, r.URL.String()); err != nil {
-	// 				http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 				return
-	// 			}
-	// 			http.Redirect(w, r, err.Description, http.StatusFound)
-	// 			return
-	// 		}
-	// 	}
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
+	resList, err := u.uma.List(sub.UMAResSrv())
+	if err != nil {
+		if err, ok := err.(*uma.ProtectionAPIError); ok {
+			if err.Code == uma.ProtectionAPICodeUnAuthorized {
+				if err := u.store.SetRedirectBack(r, w, r.URL.String()); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				http.Redirect(w, r, err.Description, http.StatusFound)
+				return
+			}
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, resID := range resList {
+		res, err := u.uma.CRUD(sub.UMAResSrv(), http.MethodGet, &uma.Res{ID: uma.ResID(resID)})
+		if err != nil {
+			fmt.Printf("uma.GET(%v,%v) に失敗 %v\n", sub, resID, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := u.trans.BindResIDToSub(res.ID, sub, ctx.NewCtxType(string(res.Type))); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 
 	ctxs, err := u.ctxDB.LoadAll(sub)
 	if err != nil {

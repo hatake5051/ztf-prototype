@@ -47,37 +47,37 @@
           "host": "http://rp1.ztf-proto.k3.ipv6.mobi"
         }
       }
-    },
-    "rx": {
-      "http://rp1.ztf-proto.k3.ipv6.mobi": {
-        "contexts": {
-          "ctx-rp1-1": [
-            "rp1:scope1",
-            "rp1:scope2"
-          ],
-          "ctx-rp1-2": [
-            "rp1:scope111",
-            "rp1:scope2"
-          ]
+    }
+  },
+  "rx": {
+    "http://rp1.ztf-proto.k3.ipv6.mobi": {
+      "contexts": {
+        "ctx-rp1-1": [
+          "rp1:scope1",
+          "rp1:scope2"
+        ],
+        "ctx-rp1-2": [
+          "rp1:scope111",
+          "rp1:scope2"
+        ]
+      },
+      "uma": {
+        "req_party_credential": {
+          "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+          "name": "cap1",
+          "password": "cap1"
         },
-        "uma": {
-          "req_party_credential": {
-            "iss": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
-            "name": "cap1",
-            "password": "cap1"
-          },
-          "client_credential": {
-            "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
-            "token_url": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/token",
-            "id": "cap1",
-            "secret": ""
-          }
-        },
-        "caep": {
-          "host": "http://cap1.ztf-proto.k3.ipv6.mobi",
-          "pushed_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/rx/0/recv",
-          "iss": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx"
+        "client_credential": {
+          "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
+          "token_url": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/token",
+          "id": "cap1",
+          "secret": ""
         }
+      },
+      "caep": {
+        "host": "http://cap1.ztf-proto.k3.ipv6.mobi",
+        "pushed_endpoint": "http://cap1.ztf-proto.k3.ipv6.mobi/rx/0/recv",
+        "iss": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx"
       }
     }
   }

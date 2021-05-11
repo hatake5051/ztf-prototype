@@ -31,8 +31,18 @@ func (conf *Conf) New() *mux.Router {
 	rpBase := make(map[string][]string)
 	for rp, rxconf := range conf.Rx {
 		var tmp []string
-		for ct, _ := range rxconf.Contexts {
+		for ct, css := range rxconf.Contexts {
 			tmp = append(tmp, ct)
+
+			scopeValue := make(map[string]string)
+			for _, cs := range css {
+				scopeValue[cs] = fmt.Sprintf("%s:init", cs)
+			}
+			ctxBase[ct] = c{
+				typ:    ct,
+				scopes: css,
+				values: scopeValue,
+			}
 		}
 		rpBase[rp] = tmp
 	}
@@ -51,18 +61,18 @@ func (conf *Conf) New() *mux.Router {
 		rxdb: &rxdb{},
 	}
 
-	tx := conf.Tx.New(d, d, d, store)
-	d.transmit = tx.Transmit
-
 	// Rx 機能を作る
-	c := recvConf(conf.Rx)
-	rx := c.new(d)
+	rxc := recvConf(conf.Rx)
+	rx := rxc.new(d)
 
 	cap := &cap{
 		store: store,
 		rp:    conf.CAP.Openid.New(),
 		rx:    rx,
 	}
+
+	tx := conf.Tx.New(rx, d, cdb, store)
+	d.transmit = tx.Transmit
 
 	r := mux.NewRouter()
 	r.HandleFunc(tx.WellKnown())
@@ -73,7 +83,7 @@ func (conf *Conf) New() *mux.Router {
 	i := 0
 	for rp, _ := range conf.Rx {
 		r.HandleFunc(fmt.Sprintf("/rx/%d/recv", i), cap.recvCtx(rp))
-		r.HandleFunc(fmt.Sprintf("/tx/%d/rctx", i), cap.setCtxID(rp))
+		r.HandleFunc(fmt.Sprintf("/rx/%d/rctx", i), cap.setCtxID(rp))
 		i += 1
 	}
 	r.HandleFunc("/oidc/callback", cap.OIDCCallback)
@@ -209,14 +219,19 @@ func (sm *sessionStoreForCAP) SetIdentity(r *http.Request, w http.ResponseWriter
 	return nil
 }
 
-func (s *sessionStoreForCAP) IdentifySubject(r *http.Request) (ctx.Sub, error) {
-	session, err := s.store.Get(r, "CAP_AUTHN")
+func (sm *sessionStoreForCAP) IdentifySubject(r *http.Request) (ctx.Sub, error) {
+	session, err := sm.store.Get(r, "CAP_AUTHN")
 	if err != nil {
 		return nil, err
 	}
 	sub, ok := session.Values["subject"].(string)
 	if !ok {
 		return nil, fmt.Errorf("ユーザを識別できない")
+	}
+	sm.inner.m.Lock()
+	defer sm.inner.m.Unlock()
+	if _, ok := sm.inner.subs[sub]; !ok {
+		sm.inner.subs[sub] = &s{sub, make(map[caep.RxID]caep.EventSubject)}
 	}
 	return NewCtxSub(sub), nil
 }

@@ -357,6 +357,7 @@ func (u *ressrv) CRUD(ownerID SubAtResSrv, method string, res *Res) (*Res, error
 	type id struct {
 		ID    string `json:"_id"`
 		Name  string `json:"name,omitempty"`
+		Type  string `json:"type"`
 		Owner struct {
 			ID string `json:"id"`
 		} `json:"owner,omitempty"`
@@ -371,6 +372,7 @@ func (u *ressrv) CRUD(ownerID SubAtResSrv, method string, res *Res) (*Res, error
 	}
 	res.ID = ResID(i.ID)
 	res.Name = i.Name
+	res.Type = ResType(i.Type)
 	res.Owner = SubAtAuthZ(i.Owner.ID)
 	res.OwnerManagedAccess = i.OwnerManagedAccess
 	for _, n := range i.Scopes {
