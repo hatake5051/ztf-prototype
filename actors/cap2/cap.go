@@ -80,11 +80,9 @@ func (conf *Conf) New() *mux.Router {
 	for _, p := range statefulPaths {
 		cap.statefulPaths = append(cap.statefulPaths, p)
 	}
-	i := 0
-	for rp, _ := range conf.Rx {
-		r.HandleFunc(fmt.Sprintf("/rx/%d/recv", i), cap.recvCtx(rp))
-		r.HandleFunc(fmt.Sprintf("/rx/%d/rctx", i), cap.setCtxID(rp))
-		i += 1
+	for rp, rconf := range conf.Rx {
+		r.HandleFunc(fmt.Sprintf("/rx/%s/recv", rconf.Realm), cap.recvCtx(rp))
+		r.HandleFunc(fmt.Sprintf("/rx/%s/rctx", rconf.Realm), cap.setCtxID(rp))
 	}
 	r.HandleFunc("/oidc/callback", cap.OIDCCallback)
 	r.Use(cap.OIDCMW)

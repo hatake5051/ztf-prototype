@@ -6,6 +6,7 @@ import (
 )
 
 type Conf struct {
+	Realm    string              `json:"realm"`
 	Contexts map[string][]string `json:"contexts"`
 	UMA      UMAConf             `json:"uma"`
 	CAEP     CAEPConf            `json:"caep"`

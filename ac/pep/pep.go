@@ -27,8 +27,8 @@ type PEP interface {
 // capList は PDP が認可判断のために使う CAP を列挙する。
 // ctxList は PIP が認可判断のために収集するコンテキストのリストを CAP をキーにしてもつ
 func New(prefix string,
-	idpList []string,
-	capList []string,
+	idpList map[string]string,
+	capList map[string]string,
 	ctrl controller.Controller,
 	store sessions.Store,
 	helper Helper,
@@ -54,9 +54,10 @@ type pep struct {
 	// prefix は RP の base URL のうち、 アクセス制御部のために用意された URL の prefix path を表す
 	prefix string
 	// idpList はこのアクセス制御部で利用可能な IdP のリストを表す
-	idpList []string
+	// realm をキーとして idp の base url を返す
+	idpList map[string]string
 	// capList はこのアクセス制御部で利用可能な CAP のリストを表す
-	capList           []string
+	capList           map[string]string
 	ctrl              controller.Controller
 	store             sessions.Store
 	helper            Helper
@@ -68,25 +69,25 @@ func (p *pep) Protect(r *mux.Router) {
 	spipPathBase := path.Join("/", p.prefix, "pip/sub")
 	ssub := r.PathPrefix(spipPathBase).Subrouter()
 	for i, idp := range p.idpList {
-		ssub.PathPrefix(fmt.Sprintf("/%d/login", i)).HandlerFunc(p.redirect(idp))
-		ssub.PathPrefix(fmt.Sprintf("/%d/callback", i)).HandlerFunc(p.callback(idp))
+		ssub.PathPrefix(fmt.Sprintf("/%s/login", i)).HandlerFunc(p.redirect(idp))
+		ssub.PathPrefix(fmt.Sprintf("/%s/callback", i)).HandlerFunc(p.callback(idp))
 	}
 
 	cpipPathBase := path.Join("/", p.prefix, "pip/ctx")
 	sctx := r.PathPrefix(cpipPathBase).Subrouter()
 	for i, cap := range p.capList {
-		sctx.PathPrefix(fmt.Sprintf("/%d/recv", i)).HandlerFunc(p.recvCtx(cap))
-		sctx.PathPrefix(fmt.Sprintf("/%d/rctx", i)).HandlerFunc(p.setCtxID(cap))
+		sctx.PathPrefix(fmt.Sprintf("/%s/recv", i)).HandlerFunc(p.recvCtx(cap))
+		sctx.PathPrefix(fmt.Sprintf("/%s/rctx", i)).HandlerFunc(p.setCtxID(cap))
 		a, err := p.ctrl.CtxAgent(cap)
 		if err != nil {
 			panic("ありえん気がするわ " + err.Error())
 		}
 		agent, ok := a.(pip.TxRxCtxAgent)
 		if ok {
-			txctxPathBase := path.Join(cpipPathBase, fmt.Sprintf("/%d/tx", i))
+			txctxPathBase := path.Join(cpipPathBase, fmt.Sprintf("/%s/tx", i))
 			pa, h := agent.WellKnown()
 			r.Handle(path.Join("/.well-known", path.Join(pa, txctxPathBase)), h)
-			plist := agent.Router(sctx.PathPrefix(fmt.Sprintf("/%d/tx", i)).Subrouter())
+			plist := agent.Router(sctx.PathPrefix(fmt.Sprintf("/%s/tx", i)).Subrouter())
 			for _, pp := range plist {
 				p.protectedPathList = append(p.protectedPathList, path.Join(txctxPathBase, pp))
 			}
@@ -190,10 +191,10 @@ func (p *pep) mw(next http.Handler) http.Handler {
 					return
 				case ac.CtxIDNotRegistered:
 
-					var index int
+					var realm string
 					for i, cap := range p.capList {
 						if cap == err.Option() {
-							index = i
+							realm = i
 							break
 						}
 					}
@@ -208,7 +209,7 @@ func (p *pep) mw(next http.Handler) http.Handler {
 						http.Error(w, err.Error(), http.StatusInternalServerError)
 						return
 					}
-					http.Redirect(w, r, fmt.Sprintf("/%s/pip/ctx/%d/rctx", p.prefix, index), http.StatusFound)
+					http.Redirect(w, r, fmt.Sprintf("/%s/pip/ctx/%s/rctx", p.prefix, realm), http.StatusFound)
 					return
 				case ac.SubjectNotAuthenticated:
 					p.login(w, r)

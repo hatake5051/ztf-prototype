@@ -131,8 +131,9 @@ func (r *repo) CtxTypes(CAPURL string) []ctx.Type {
 }
 
 type CtxPIPFor1CAP struct {
-	Rx rx.Conf `json:"rx"`
-	Tx tx.Conf `json:"tx,omitempty"`
+	Realm string  `json:"realm"`
+	Rx    rx.Conf `json:"rx"`
+	Tx    tx.Conf `json:"tx,omitempty"`
 }
 
 // cPIPForRxCtx はある CAP が管理するコンテキストを扱う PIP

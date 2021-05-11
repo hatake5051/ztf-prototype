@@ -13,6 +13,7 @@ import (
 
 // Conf は OpenID Connect の RP としての設定情報を表す
 type Conf struct {
+	Realm string `json:"realm"`
 	// Issuer は OP のドメイン
 	Issuer string `json:"issuer"`
 	// RP としての client credential

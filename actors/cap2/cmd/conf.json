@@ -3,7 +3,7 @@
     "openid": {
       "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/cap2-idp",
       "client_id": "cap2",
-      "client_secret": "",
+      "client_secret": "c3d0420d-0579-4602-aed9-c010941e84bb",
       "redirect_url": "http://cap2.ztf-proto.k3.ipv6.mobi/oidc/callback"
     }
   },
@@ -17,7 +17,7 @@
     "uma": {
       "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
       "client_id": "cap2",
-      "client_secret": "",
+      "client_secret": "03d024ff-9ee3-4485-ae09-f23852dd8c32",
       "redirect_url": "http://cap2.ztf-proto.k3.ipv6.mobi/uma/pat/callback",
       "jwks_uri": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/certs"
     },

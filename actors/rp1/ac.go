@@ -47,13 +47,13 @@ func (conf *Conf) New(prefix string) pep.PEP {
 	ctrl := controller.New(pip, pdp)
 
 	// PEP の構成
-	var idpList []string
-	for idp, _ := range conf.PIP.Sub {
-		idpList = append(idpList, idp)
+	idpList := make(map[string]string)
+	for idp, sconf := range conf.PIP.Sub {
+		idpList[sconf.Realm] = idp
 	}
-	var capList []string
-	for cap, _ := range conf.PIP.Ctx {
-		capList = append(capList, cap)
+	capList := make(map[string]string)
+	for cap, cconf := range conf.PIP.Ctx {
+		capList[cconf.Realm] = cap
 	}
 
 	pep := pep.New(prefix, idpList, capList, ctrl, store, &helper{})

@@ -2,20 +2,22 @@
   "pip": {
     "sub": {
       "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp3": {
+        "realm": "idp3",
         "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp3",
         "client_id": "rp2",
-        "client_secret": "",
-        "redirect_url": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/sub/0/callback"
+        "client_secret": "050f3dbc-d713-4354-bdfd-b73f7650569c",
+        "redirect_url": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/sub/idp3/callback"
       }
     },
     "ctx": {
       "http://cap1.ztf-proto.k3.ipv6.mobi": {
+        "realm": "cap1",
         "rx": {
           "contexts": {
             "device-location": [
               "ip",
               "used:ip",
-              "wifi-ap:ip"
+              "wifi-ap"
             ]
           },
           "uma": {
@@ -28,12 +30,12 @@
               "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
               "token_url": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/token",
               "id": "rp2",
-              "secret": ""
+              "secret": "e8d9d8d8-f22c-4c3e-8534-8e3462639147"
             }
           },
           "caep": {
             "host": "http://rp2.ztf-proto.k3.ipv6.mobi",
-            "pushed_endpoint": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/recv",
+            "pushed_endpoint": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/recv",
             "iss": "http://cap1.ztf-proto.k3.ipv6.mobi"
           }
         },
@@ -46,8 +48,8 @@
           "uma": {
             "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
             "client_id": "rp2",
-            "client_secret": "",
-            "redirect_url": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/uma/pat/callback",
+            "client_secret": "e8d9d8d8-f22c-4c3e-8534-8e3462639147",
+            "redirect_url": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx/uma/pat/callback",
             "jwks_uri": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/certs"
           },
           "caep": {
@@ -76,6 +78,7 @@
         }
       },
       "http://cap2.ztf-proto.k3.ipv6.mobi": {
+        "realm": "cap2",
         "rx": {
           "contexts": {
             "device-health": [
@@ -93,13 +96,13 @@
               "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
               "token_url": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/token",
               "id": "rp2",
-              "secret": ""
+              "secret": "e8d9d8d8-f22c-4c3e-8534-8e3462639147"
             }
           },
           "caep": {
             "host": "http://rp2.ztf-proto.k3.ipv6.mobi",
-            "pushed_endpoint": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/recv",
-            "iss": "http://cap1.ztf-proto.k3.ipv6.mobi"
+            "pushed_endpoint": "http://rp2.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap2/recv",
+            "iss": "http://cap2.ztf-proto.k3.ipv6.mobi"
           }
         }
       }

@@ -2,26 +2,29 @@
   "pip": {
     "sub": {
       "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp1": {
+        "realm": "idp1",
         "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp1",
         "client_id": "rp1",
-        "client_secret": "",
-        "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/0/callback"
+        "client_secret": "3d54afda-9b32-4470-9354-a55b83e287b0",
+        "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/idp1/callback"
       },
       "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp2": {
+        "realm": "idp2",
         "issuer": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/idp2",
         "client_id": "rp1",
-        "client_secret": "",
-        "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/1/callback"
+        "client_secret": "b74ebf63-28ef-44bc-844f-fcee0be1b31f",
+        "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/sub/idp2/callback"
       }
     },
     "ctx": {
       "http://cap1.ztf-proto.k3.ipv6.mobi": {
+        "realm": "cap1",
         "rx": {
           "contexts": {
             "device-location": [
               "ip",
               "used:ip",
-              "wifi-ap:ip"
+              "wifi-ap"
             ]
           },
           "uma": {
@@ -34,12 +37,12 @@
               "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
               "token_url": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/token",
               "id": "rp1",
-              "secret": ""
+              "secret": "b4048aa7-6072-44a9-bf24-632f6302bd3d"
             }
           },
           "caep": {
             "host": "http://rp1.ztf-proto.k3.ipv6.mobi",
-            "pushed_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/recv",
+            "pushed_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/recv",
             "iss": "http://cap1.ztf-proto.k3.ipv6.mobi"
           }
         },
@@ -52,13 +55,13 @@
           "uma": {
             "authZ": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz",
             "client_id": "rp1",
-            "client_secret": "",
-            "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/uma/pat/callback",
+            "client_secret": "b4048aa7-6072-44a9-bf24-632f6302bd3d",
+            "redirect_url": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx/uma/pat/callback",
             "jwks_uri": "http://idp.ztf-proto.k3.ipv6.mobi/auth/realms/authz/protocol/openid-connect/certs"
           },
           "caep": {
             "metadata": {
-              "issuer": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx",
+              "issuer": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx",
               "jwks_uri": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/certs",
               "supported_versions": [
                 "2.0"
@@ -66,11 +69,11 @@
               "delivery_methods_supported": [
                 "https://schemas.openid.net/secevent/risc/delivery-method/push"
               ],
-              "status_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/status",
-              "configuration_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/stream",
-              "add_subject_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/subject:add",
-              "remove_subject_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/subject:remove",
-              "verification_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/verify"
+              "status_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx/sse/mgmt/status",
+              "configuration_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx/sse/mgmt/stream",
+              "add_subject_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx/sse/mgmt/subject:add",
+              "remove_subject_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx/sse/mgmt/subject:remove",
+              "verification_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/cap1/tx/sse/mgmt/verify"
             },
             "receivers": {
               "cap1": {
