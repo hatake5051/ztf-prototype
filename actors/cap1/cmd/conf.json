@@ -42,6 +42,10 @@
         "rp1": {
           "client_id": "rp1",
           "host": "http://rp1.ztf-proto.k3.ipv6.mobi"
+        },
+        "rp2": {
+          "client_id": "rp2",
+          "host": "http://rp2.ztf-proto.k3.ipv6.mobi"
         }
       }
     }
