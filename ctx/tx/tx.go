@@ -54,6 +54,7 @@ type CtxDB interface {
 }
 
 type Translater interface {
+	CtxSub(*caep.EventSubject, caep.RxID, ctx.Type) (ctx.Sub, error)
 	EventSubject(ctx.Sub, ctx.Type, caep.RxID) (*caep.EventSubject, error)
 	ResID(ctx.ID) (uma.ResID, error)
 	BindEventSubjectToResID(caep.RxID, *caep.EventSubject, uma.ResID) error

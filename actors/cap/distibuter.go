@@ -17,12 +17,14 @@ func (d *distributer) SaveStatus(rxID caep.RxID, status *caep.StreamStatus) erro
 	if err := d.rxdb.SaveStatus(rxID, status); err != nil {
 		return err
 	}
-	sub, err := d.cdb.CtxSub(&status.Subject, rxID)
-	if err != nil {
-		return err
-	}
-	for et, _ := range status.EventScopes {
-		c, err := d.cdb.LoadCtx(sub, ctx.NewCtxType(string(et)))
+
+	for et := range status.EventScopes {
+		ct := ctx.NewCtxType(string(et))
+		sub, err := d.cdb.CtxSub(&status.Subject, rxID, ct)
+		if err != nil {
+			return err
+		}
+		c, err := d.cdb.LoadCtx(sub, ct)
 		if err != nil {
 			return fmt.Errorf("d.cdb.Load(%v,%v) に失敗", sub, et)
 		}

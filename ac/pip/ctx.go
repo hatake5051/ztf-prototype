@@ -31,7 +31,11 @@ func (conf *CtxPIPConf) new(store SessionStoreForCPIP, ctxDB CtxDB, umaDB rx.UMA
 		}
 		if capconf.Tx.Contexts != nil {
 			cDB := &ctxDBForTxRxCtx{capURL, ctxDB}
-			tx := capconf.Tx.New(rxDB, cDB, translaterForTx, store.ForTx(capURL))
+			d := &distributer{
+				cDB, rxDB, translaterForTx, nil,
+			}
+			tx := capconf.Tx.New(d, cDB, translaterForTx, store.ForTx(capURL))
+			d.transmit = tx.Transmit
 			agent = &cPIPForTxRxCtx{
 				rxagent,
 				store.ForTx(capURL),
@@ -216,4 +220,33 @@ func (db *ctxDBForTxRxCtx) LoadCtx(sub ctx.Sub, ct ctx.Type) (ctx.Ctx, error) {
 
 func (db *ctxDBForTxRxCtx) LoadAll(sub ctx.Sub) ([]ctx.Ctx, error) {
 	return db.inner.LoadAllFromCAP(db.capURL, sub), nil
+}
+
+type distributer struct {
+	db *ctxDBForTxRxCtx
+	tx.RxDB
+	tr       tx.Translater
+	transmit func(ctx.Ctx) error
+}
+
+func (d *distributer) SaveStatus(rxID caep.RxID, status *caep.StreamStatus) error {
+	if err := d.RxDB.SaveStatus(rxID, status); err != nil {
+		return err
+	}
+	for et, _ := range status.EventScopes {
+		ct := ctx.NewCtxType(string(et))
+
+		sub, err := d.tr.CtxSub(&status.Subject, rxID, ct)
+		if err != nil {
+			return fmt.Errorf("d.tr.CtxSub(%v,%s,%s) に失敗 %v", status.Subject, rxID, ct, err)
+		}
+		c, err := d.db.LoadCtx(sub, ct)
+		if err != nil {
+			return fmt.Errorf("d.cdb.Load(%v,%v) に失敗 %v", sub, et, err)
+		}
+		if err := d.transmit(c); err != nil {
+			return fmt.Errorf("transmit に失敗 %v", err)
+		}
+	}
+	return nil
 }

@@ -166,7 +166,7 @@ func (db *cdb) EventSubject(sub ctx.Sub, ct ctx.Type, rxID caep.RxID) (*caep.Eve
 	return nil, fmt.Errorf("cdb.EventSub(%v,%v, %v) でコンテキストが見つからなかった", sub, ct, rxID)
 }
 
-func (db *cdb) CtxSub(esub *caep.EventSubject, rxID caep.RxID) (ctx.Sub, error) {
+func (db *cdb) CtxSub(esub *caep.EventSubject, rxID caep.RxID, ct ctx.Type) (ctx.Sub, error) {
 	db.m.RLock()
 	defer db.m.RUnlock()
 	ss, ok := db.subs[esub.Identifier()]

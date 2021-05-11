@@ -75,6 +75,21 @@ type iTranslaterForTx struct {
 
 var _ tx.Translater = &iTranslaterForTx{}
 
+func (db *iTranslaterForTx) CtxSub(esub *caep.EventSubject, rxID caep.RxID, ct ctx.Type) (ctx.Sub, error) {
+	db.m.Lock()
+	defer db.m.Unlock()
+	for _, v := range db.ctxs {
+		if v != nil {
+			if c, ok := v[ct.String()]; ok {
+				if es, ok := c.Subject.esubs[rxID]; ok && es.Identifier() == esub.Identifier() {
+					return c.Sub(), nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("見つからんかったわ")
+}
+
 func (db *iTranslaterForTx) EventSubject(sub ctx.Sub, ct ctx.Type, rxID caep.RxID) (*caep.EventSubject, error) {
 	db.m.RLock()
 	defer db.m.RUnlock()
@@ -84,7 +99,6 @@ func (db *iTranslaterForTx) EventSubject(sub ctx.Sub, ct ctx.Type, rxID caep.RxI
 		return nil, fmt.Errorf("Sub(%v) の Ctx(%v) in Recv(%v) に対応する esub なし", sub, ct, rxID)
 	}
 	return esub, nil
-
 }
 
 func (db *iTranslaterForTx) ResID(ctxID ctx.ID) (uma.ResID, error) {
