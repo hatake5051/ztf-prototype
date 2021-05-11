@@ -75,7 +75,7 @@
               "verification_endpoint": "http://rp1.ztf-proto.k3.ipv6.mobi/auth/pip/ctx/0/tx/sse/mgmt/verify"
             },
             "receivers": {
-              "rp1": {
+              "cap1": {
                 "client_id": "cap1",
                 "host": "http://cap1.ztf-proto.k3.ipv6.mobi"
               }

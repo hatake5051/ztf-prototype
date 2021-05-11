@@ -14,7 +14,19 @@ import (
 type recvConf map[string]rx.Conf
 
 func (conf *recvConf) new(d *distributer) *recv {
-	return &recv{distributer: d, conf: *conf}
+	dummyreqs := map[string][]rx.ReqCtx{
+		"rp1": {
+			rx.ReqCtx{
+				Type:   ctx.NewCtxType("ctx-rp1-1"),
+				Scopes: []ctx.Scope{ctx.NewCtxScope("rp1:scope1"), ctx.NewCtxScope("rp1:scope2")},
+			},
+			rx.ReqCtx{
+				Type:   ctx.NewCtxType("ctx-rp1-2"),
+				Scopes: []ctx.Scope{ctx.NewCtxScope("rp1:scope111"), ctx.NewCtxScope("rp1:scope2")},
+			},
+		},
+	}
+	return &recv{distributer: d, conf: *conf, reqs: dummyreqs}
 }
 
 type recv struct {
@@ -223,6 +235,7 @@ func (tr *translaterForRx) BindCtxIDToCtx(ctxID ctx.ID, sub ctx.Sub, ct ctx.Type
 
 	}
 	prevCtx.id = ctxID.String()
+	tr.ctxs[s.String()][ct.String()] = prevCtx
 	return nil
 }
 

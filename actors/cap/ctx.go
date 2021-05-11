@@ -30,7 +30,7 @@ func (s *s) UMAResSrv() uma.SubAtResSrv {
 }
 
 func (s *s) Options() map[string]string {
-	return make(map[string]string)
+	return map[string]string{"sub": s.sub}
 }
 
 type c struct {
