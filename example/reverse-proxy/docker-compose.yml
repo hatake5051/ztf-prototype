@@ -5,8 +5,12 @@ services:
     image: jwilder/nginx-proxy
     ports:
     - "80:80"
+    - "443:443"
     volumes:
     - /var/run/docker.sock:/tmp/docker.sock:ro
+    - type: bind
+      source: "certs"
+      target: "/etc/nginx/certs"
     networks:
     - reverse-proxy-net
 

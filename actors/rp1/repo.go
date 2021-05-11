@@ -215,23 +215,26 @@ func (db *iCtxDB) SaveCtxFrom(e *caep.Event) error {
 }
 
 func (db *iCtxDB) SaveCtxFromR(sub ctx.Sub, r *http.Request) error {
-	if err := r.ParseForm(); err != nil {
-		return fmt.Errorf("request のパースに失敗 %v", err)
-	}
-	ct, ok := r.Form["ctx-type"]
-	if !ok {
-		return fmt.Errorf("必須パラメータなし")
-	}
-	cv, ok := r.Form["value"]
-	if !ok {
-		return fmt.Errorf("答えが設定されていない")
-	}
 	db.m.Lock()
 	defer db.m.Unlock()
 	if _, ok := db.ctxs[sub.String()]; !ok {
 		db.ctxs[sub.String()] = make(map[string]*c)
 	}
-	db.ctxs[sub.String()][ct[0]].Values[ct[0]] = cv[0]
+	if ip := r.Header.Get("X-Real-Ip"); ip != "" {
+		ipct := ctx.NewCtxType("http://rp1.ztf-proto.k3.ipv6.mobi/ctxtype/ip")
+		prevc, ok := db.ctxs[sub.String()][ipct.String()]
+		if !ok {
+			prevc = &c{
+				ipct.String(),
+				&cs{sub.Options()["sub"], sub.Options()["dev"], make(map[caep.RxID]*caep.EventSubject)},
+				db.ctxBase[ipct.String()],
+				make(map[string]string),
+				"",
+				"",
+			}
+		}
+		prevc.Values["raw"] = ip
+	}
 	return nil
 }
 
