@@ -77,10 +77,11 @@ func (c *c) Value(s ctx.Scope) string {
 }
 
 type cdb struct {
-	cBase map[string]c // ctx.Type -> ctx.Ctx
-	m     sync.RWMutex
-	ctxs  map[string]map[string]*c // subject -> ctx.Type -> ctx.Ctx
-	subs  map[string]*s            // ( pseudonymou )ctx.Sub -> (cap-identifiable) subject
+	rpBase map[string][]string // rpURL -> []ctx.Type
+	cBase  map[string]c        // ctx.Type -> ctx.Ctx
+	m      sync.RWMutex
+	ctxs   map[string]map[string]*c // subject -> ctx.Type -> ctx.Ctx
+	subs   map[string]*s            // ( pseudonymou )ctx.Sub -> (cap-identifiable) subject
 }
 
 var _ tx.CtxDB = &cdb{}

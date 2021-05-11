@@ -28,8 +28,16 @@ func (conf *Conf) New() *mux.Router {
 			values: scopeValue,
 		}
 	}
+	rpBase := make(map[string][]string)
+	for rp, rxconf := range conf.Rx {
+		var tmp []string
+		for ct, _ := range rxconf.Contexts {
+			tmp = append(tmp, ct)
+		}
+		rpBase[rp] = tmp
+	}
 	cdb := &cdb{
-		ctxBase, sync.RWMutex{}, make(map[string]map[string]*c), make(map[string]*s),
+		rpBase, ctxBase, sync.RWMutex{}, make(map[string]map[string]*c), make(map[string]*s),
 	}
 
 	// CAP でのセッションを管理する store を構築
@@ -46,9 +54,14 @@ func (conf *Conf) New() *mux.Router {
 	tx := conf.Tx.New(d, d, d, store)
 	d.transmit = tx.Transmit
 
+	// Rx 機能を作る
+	c := recvConf(conf.Rx)
+	rx := c.new(d)
+
 	cap := &cap{
 		store: store,
 		rp:    conf.CAP.Openid.New(),
+		rx:    rx,
 	}
 
 	r := mux.NewRouter()
@@ -57,7 +70,12 @@ func (conf *Conf) New() *mux.Router {
 	for _, p := range statefulPaths {
 		cap.statefulPaths = append(cap.statefulPaths, p)
 	}
-
+	i := 0
+	for rp, _ := range conf.Rx {
+		r.HandleFunc(fmt.Sprintf("/rx/%d/recv", i), cap.recvCtx(rp))
+		r.HandleFunc(fmt.Sprintf("/tx/%d/rctx", i), cap.setCtxID(rp))
+		i += 1
+	}
 	r.HandleFunc("/oidc/callback", cap.OIDCCallback)
 	r.Use(cap.OIDCMW)
 
@@ -73,6 +91,7 @@ type cap struct {
 	rp            openid.RP
 	store         SessionStore
 	statefulPaths []string
+	rx            *recv
 }
 
 func (c *cap) OIDCMW(next http.Handler) http.Handler {
@@ -112,6 +131,59 @@ func (c *cap) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, c.store.LoadRedirectBack(r), http.StatusFound)
+}
+
+func (c *cap) setCtxID(rp string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sub, err := c.store.IdentifySubject(r)
+		if err != nil {
+			http.Error(w, "setCtxID() で、サブジェクト識別に失敗"+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if r.Method == http.MethodGet {
+			s := "<html><head/><body><h1>コンテキストのIDを設定してください</h1>"
+			s += fmt.Sprintf(`<h1>CAP(%s) のコンテキスト</h1>`, rp)
+			s += `<form action="" method="POST">`
+			s += "<li>"
+			for _, c := range c.rx.MnagedCtxList(rp, sub) {
+				s += fmt.Sprintf(`コンテキストの種類 (%[1]s) のID <input type="text" name="%[1]s" placeholder="%[2]s"><br/>`, c.Type().String(), c.ID().String())
+			}
+			s += "</li>"
+			s += `<input type="submit" value="設定する">`
+			s += "</form></body></html>"
+
+			w.Write([]byte(s))
+			return
+		}
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, fmt.Sprintf("setctxid の parseform に失敗 %v", err), http.StatusInternalServerError)
+				return
+			}
+			for k, v := range r.Form {
+				if v[0] == "" {
+					continue
+				}
+				if err := c.rx.SetCtxID(rp, sub, k, v[0]); err != nil {
+					http.Error(w, fmt.Sprintf("setctxid に失敗 %v", err), http.StatusInternalServerError)
+					return
+				}
+			}
+			return
+		}
+	}
+}
+
+// recvCtx は CAP からコンテキストを受け取るエンドポイント用のハンドラーを返す
+// transmitter で提供先の CAP を指定する
+func (c *cap) recvCtx(transmitter string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := c.rx.RecvCtx(transmitter, r); err != nil {
+			fmt.Printf("cap.Recv(%s) でエラー %v\n", transmitter, err)
+		}
+		return
+	}
 }
 
 // SessionStore の実装
