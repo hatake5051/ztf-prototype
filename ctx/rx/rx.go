@@ -9,6 +9,7 @@ import (
 	"github.com/hatake5051/ztf-prototype/uma"
 )
 
+// New は 設定ファイルをもとに Rx を構築する。
 func (conf *Conf) New(ctxDB CtxDB, umaDB UMADB, translater Translater) Rx {
 	u, err := conf.UMA.new(umaDB)
 	if err != nil {

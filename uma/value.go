@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"time"
 
 	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
 )
 
-// SubAtAuthZ はユーザの識別子
-// 認可サーバがこの識別子を理解できる
+// SubAtAuthZ は認可サーバにおけるユーザを表現する。
 type SubAtAuthZ string
 
 // SubAtResSrv はユーザの識別子
@@ -77,37 +77,61 @@ func NewPermissionTicket(ticket, authZSrv, resSrv string) *PermissionTicket {
 
 // PAT は Protection API Token を表し oauth2.Token のこと
 type PAT struct {
-	oauth2.Token
+	t *oauth2.Token
+	e time.Time // refresh token's expiration time
 }
 
-// SetAuthHeader は PAT をHTTPリクエストのヘッダーにセットする
-func (t *PAT) SetAuthHeader(r *http.Request) {
-	r.Header.Set("Authorization", t.Type()+" "+t.AccessToken)
+func (t *PAT) new(tt *oauth2.Token) {
+	t = new(PAT)
+	t.t = tt
+	if refreshExpiresIn, ok := tt.Extra("refresh_expires_in").(int); ok {
+		t.e = time.Now().Add(time.Duration(refreshExpiresIn) * time.Second)
+	}
+}
+
+func (t *PAT) refreshExpired() bool {
+	// t.e が 0 の場合は refresh の締め切りはないと考える
+	if t.e.IsZero() {
+		return false
+	}
+	return t.e.Round(0).Add(-10 * time.Second).Before(time.Now())
 }
 
 // Keycloak では登録済みのリソース一覧を ProtectionAPI を介して行うと、
 // PAT 発行したユーザ以外のそのリソースサーバで登録済みの全てのリソースが返ってくる
 // PAT 発行したユーザだけのリソースが欲しいので PAT を解釈している
-func (t *PAT) Subject() SubAtAuthZ {
-	tok, err := jwt.ParseString(t.AccessToken)
+func (t *PAT) subject() (SubAtAuthZ, error) {
+	tok, err := jwt.ParseString(t.t.AccessToken)
 	if err != nil {
-		panic("err にならないっしょ")
+		return "", fmt.Errorf("Cannot extract subject from PAT %v", err)
 	}
-	return SubAtAuthZ(tok.Subject())
+	return SubAtAuthZ(tok.Subject()), nil
 }
 
 // RPT は Requesting Party Token を表し oauth2.Token のこと
 type RPT struct {
-	oauth2.Token
+	t *oauth2.Token
+	e time.Time // refresh token's expiration time
 }
 
-// SetAuthHeader はRPTをHTTPリクエストのヘッダーにセットする
-func (t *RPT) SetAuthHeader(r *http.Request) {
-	r.Header.Set("Authorization", t.Type()+" "+t.AccessToken)
+func (t *RPT) new(tt *oauth2.Token) {
+	t = new(RPT)
+	t.t = tt
+	if refreshExpiresIn, ok := tt.Extra("refresh_expires_in").(int); ok {
+		t.e = time.Now().Add(time.Duration(refreshExpiresIn) * time.Second)
+	}
+}
+
+func (t *RPT) refreshExpired() bool {
+	// t.e が 0 の場合は refresh の締め切りはないと考える
+	if t.e.IsZero() {
+		return false
+	}
+	return t.e.Round(0).Add(-10 * time.Second).Before(time.Now())
 }
 
 // AuthZSrv は UMA-enabled な認可サーバのエンドポイントなどを表す
-type AuthZSrv struct {
+type AuthZSrvConf struct {
 	Issuer        string `json:"issuer"`
 	AuthZURL      string `json:"authorization_endpoint"`
 	TokenURL      string `json:"token_endpoint"`
@@ -116,11 +140,9 @@ type AuthZSrv struct {
 }
 
 // NewAuthZSrv は issuer の well-known エンドポイントにアクセスして認可サーバの情報を取得する
-func NewAuthZSrv(issuer string) (*AuthZSrv, error) {
-	ur, err := url.Parse(issuer)
-	if err != nil {
-		return nil, err
-	}
+func NewAuthZSrvConf(issuer *url.URL) (*AuthZSrvConf, error) {
+	ur := *issuer
+	// Keycloak の場合
 	ur.Path = path.Join(ur.Path, "/.well-known/uma2-configuration")
 	resp, err := http.Get(ur.String())
 	if err != nil {
@@ -136,12 +158,12 @@ func NewAuthZSrv(issuer string) (*AuthZSrv, error) {
 	if contentType != "application/json" {
 		return nil, fmt.Errorf("contentType(%v) is not app/json", contentType)
 	}
-	a := new(AuthZSrv)
+	a := new(AuthZSrvConf)
 	defer resp.Body.Close()
 	if err := json.NewDecoder(resp.Body).Decode(a); err != nil {
 		return nil, err
 	}
-	if a.Issuer != issuer {
+	if a.Issuer != issuer.String() {
 		return nil, fmt.Errorf("authZ issuer unmatched, expected %q got %q", issuer, a.Issuer)
 	}
 	return a, nil
