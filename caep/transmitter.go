@@ -2,12 +2,13 @@ package caep
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mime"
 	"net/http"
-	"net/http/httputil"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -16,17 +17,17 @@ import (
 )
 
 // TransConf は caep の Transmitter を構築するための設定情報を表す
-type TransConf struct {
-	Tr *Transmitter
+type TxConf struct {
+	Tr *TransmitterConf
 }
 
 // New は設定情報から caep の txansmitter を構築する
-func (c *TransConf) New(rxRepo RxRepo, subStatusRepo SubStatusRepo, verifier Verifier) Tx {
+func (c *TxConf) New(stream StreamConfigRepo, status SubStatusRepo, verifier Verifier) Tx {
 	return &tx{
-		conf:       c.Tr,
-		rxRepo:     rxRepo,
-		statusRepo: subStatusRepo,
-		verifier:   verifier,
+		c.Tr,
+		stream,
+		status,
+		verifier,
 	}
 }
 
@@ -37,15 +38,15 @@ type Tx interface {
 	// WellKnown は
 	WellKnown(w http.ResponseWriter, r *http.Request)
 	// Transmit は aud に event を送信する
-	Transmit(aud []Receiver, event *Event) error
+	Transmit(context context.Context, aud RxID, event *Event) error
 }
 
 // RxRepo は Transmitter が管理している Receiver を永続化する
-type RxRepo interface {
+type StreamConfigRepo interface {
 	// Load は RxID に対応する Receiver の設定情報を読み出す
-	Load(RxID) (*Receiver, error)
+	Load(RxID) (*StreamConfig, error)
 	// Save は Reveiver の設定情報を保存する
-	Save(*Receiver) error
+	Save(RxID, *StreamConfig) error
 }
 
 // SubStatusRepo は Transmitter が管轄している Receiver のサブジェクトごとの status を永続化する
@@ -65,30 +66,17 @@ type Verifier interface {
 }
 
 type tx struct {
-	conf       *Transmitter
-	rxRepo     RxRepo
-	statusRepo SubStatusRepo
-	verifier   Verifier
+	conf     *TransmitterConf
+	stream   StreamConfigRepo
+	status   SubStatusRepo
+	verifier Verifier
 }
 
 func (tx *tx) Router(r *mux.Router) {
-	r.Use(DumpMiddleware)
-	r.HandleFunc("/.well-known/sse-configuration", tx.WellKnown)
-
 	r.PathPrefix("/sse/mgmt/stream").Methods("GET").HandlerFunc(tx.ReadStreamConfig)
 	r.PathPrefix("/sse/mgmt/stream").Methods("POST").HandlerFunc(tx.UpdateStreamConfig)
-
 	r.PathPrefix("/sse/mgmt/status").Methods("GET").HandlerFunc(tx.ReadStreamStatus)
-
 	r.PathPrefix("/sse/mgmt/subject:add").Methods("POST").HandlerFunc(tx.AddSub)
-}
-
-func DumpMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := httputil.DumpRequest(r, true)
-		fmt.Printf("DumpMiddlere\n%s\n", b)
-		next.ServeHTTP(w, r)
-	})
 }
 
 func (tx *tx) WellKnown(w http.ResponseWriter, r *http.Request) {
@@ -111,17 +99,18 @@ func (tx *tx) ReadStreamStatus(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		fmt.Printf("[CAEP] Tx.ReadStreamStatus failed because validation %#v\n", err)
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
 
 	// どのユーザの status を調べようとしているかチェック
-	sub := new(EventSubject)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "リクエストのパースに失敗 "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	b, err := base64.URLEncoding.DecodeString(r.Form.Get("subject"))
+	sub := new(EventSubject)
+	b, err := base64.RawURLEncoding.DecodeString(r.Form.Get("subject"))
 	if err != nil {
 		http.Error(w, "get stream status の subject クエリが正しくないフォーマット"+err.Error(), http.StatusBadRequest)
 		return
@@ -130,8 +119,9 @@ func (tx *tx) ReadStreamStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "get stream status の subject クエリが正しくないフォーマット"+err.Error(), http.StatusBadRequest)
 		return
 	}
-	status, err := tx.statusRepo.Load(rxID, sub)
+	status, err := tx.status.Load(rxID, sub)
 	if err != nil {
+		fmt.Printf("[CAEP] Tx.ReadStreamStatus failed because not found %#v\n", err)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -140,6 +130,7 @@ func (tx *tx) ReadStreamStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "失敗", http.StatusInternalServerError)
 		return
 	}
+	fmt.Printf("[CAEP] Tx.ReamStreamStatus succeeded status: %#v\n", status)
 }
 
 func (tx *tx) UpdateStreamStatus(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +150,7 @@ func (tx *tx) UpdateStreamStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Token の検証をして、対応する Receiver を識別する (Sec.9)
-	recvID, status, err := tx.verifier.Status(r.Header.Get("Authorization"), reqStatus)
+	rxID, status, err := tx.verifier.Status(r.Header.Get("Authorization"), reqStatus)
 	if err != nil {
 		if err, ok := err.(TxError); ok {
 			if err.Code() == TxErrorUnAuthorized {
@@ -169,10 +160,12 @@ func (tx *tx) UpdateStreamStatus(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		fmt.Printf("[CAEP] Tx.UpdatetreamStatus failed because validation %#v\n", err)
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	if err := tx.statusRepo.Save(recvID, status); err != nil {
+	if err := tx.status.Save(rxID, status); err != nil {
+		fmt.Printf("[CAEP] Tx.UpdatetreamStatus failed because status.Save(%s,%v) %#v\n", rxID, status, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -181,11 +174,12 @@ func (tx *tx) UpdateStreamStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	fmt.Printf("[CAEP] Tx.UpdatetreamStatus succeeded status %#v\n", status)
 }
 
 func (tx *tx) ReadStreamConfig(w http.ResponseWriter, r *http.Request) {
 	// Token の検証をして、対応する Receiver を識別する
-	recvID, err := tx.verifier.Stream(r.Header.Get("Authorization"))
+	rxID, err := tx.verifier.Stream(r.Header.Get("Authorization"))
 	if err != nil {
 		if err, ok := err.(TxError); ok {
 			if err.Code() == TxErrorUnAuthorized {
@@ -195,24 +189,27 @@ func (tx *tx) ReadStreamConfig(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		fmt.Printf("[CAEP] Tx.ReadStreamConfig failed because validation %#v\n", err)
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	recv, err := tx.rxRepo.Load(recvID)
+	stream, err := tx.stream.Load(rxID)
 	if err != nil {
+		fmt.Printf("[CAEP] Tx.ReadStreamConfig failed because stream.Load(%s) %#v\n", rxID, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(recv.StreamConf); err != nil {
+	if err := json.NewEncoder(w).Encode(stream); err != nil {
 		http.Error(w, "失敗", http.StatusInternalServerError)
 		return
 	}
+	fmt.Printf("[CAEP] Tx.ReadStreamConfig succeeded stream %#v\n", stream)
 }
 
 func (tx *tx) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 	// Token の検証をして、対応する Receiver を識別する
-	recvID, err := tx.verifier.Stream(r.Header.Get("Authorization"))
+	rxID, err := tx.verifier.Stream(r.Header.Get("Authorization"))
 	if err != nil {
 		if err, ok := err.(TxError); ok {
 			if err.Code() == TxErrorUnAuthorized {
@@ -222,6 +219,7 @@ func (tx *tx) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		fmt.Printf("[CAEP] Tx.UpdatetreamConfig failed because validation %#v\n", err)
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
@@ -230,27 +228,30 @@ func (tx *tx) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "status update 要求のパースに失敗", http.StatusNotFound)
 		return
 	}
-	recv, err := tx.rxRepo.Load(recvID)
+	stream, err := tx.stream.Load(rxID)
 	if err != nil {
+		fmt.Printf("[CAEP] Tx.UpdatetreamConfig failed because stream.Load(%s) %#v\n", rxID, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if ismodified := recv.StreamConf.Update(req); ismodified {
-		for _, e := range recv.StreamConf.EventsRequested {
-			if contains(recv.StreamConf.EventsSupported, e) {
-				recv.StreamConf.EventsDelivered = append(recv.StreamConf.EventsDelivered, e)
+	if ismodified := stream.update(req); ismodified {
+		for _, e := range stream.EventsRequested {
+			if contains(stream.EventsSupported, e) {
+				stream.EventsDelivered = append(stream.EventsDelivered, e)
 			}
 		}
-		if err := tx.rxRepo.Save(recv); err != nil {
+		if err := tx.stream.Save(rxID, stream); err != nil {
+			fmt.Printf("[CAEP] Tx.UpdatetreamConfig failed because stream.Save(%s, %v) %#v\n", rxID, stream, err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(recv.StreamConf); err != nil {
+	if err := json.NewEncoder(w).Encode(stream); err != nil {
 		http.Error(w, "失敗", http.StatusInternalServerError)
 		return
 	}
+	fmt.Printf("[CAEP] Tx.UpdatetreamConfig succeeded stream %#v\n", stream)
 }
 
 func (tx *tx) AddSub(w http.ResponseWriter, r *http.Request) {
@@ -279,54 +280,67 @@ func (tx *tx) AddSub(w http.ResponseWriter, r *http.Request) {
 				for k, v := range headers {
 					w.Header().Set(k, v)
 				}
+				fmt.Printf("[CAEP] Tx.AddSub failed(401) because validation %#v\n", err)
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 				return
 			}
 			if err.Code() == TxErrorNotFound {
+				fmt.Printf("[CAEP] Tx.AddSub failed(404) because validation %#v\n", err)
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
 		}
+		fmt.Printf("[CAEP] Tx.AddSub failed(403) because validation %#v\n", err)
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	if err := tx.statusRepo.Save(rxID, status); err != nil {
+	if err := tx.status.Save(rxID, status); err != nil {
+		fmt.Printf("[CAEP] Tx.AddSub failed because status.Save(%s,%v) %#v\n", rxID, status, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	fmt.Printf("[CAEP] Tx.AddSub succeeded %#v\n", status)
 	return
 }
 
-func (tx *tx) Transmit(aud []Receiver, event *Event) error {
+func (tx *tx) Transmit(context context.Context, aud RxID, event *Event) error {
 	t := jwt.New()
 	t.Set(jwt.IssuerKey, tx.conf.Issuer)
-	for _, r := range aud {
-		t.Set(jwt.AudienceKey, r.Host)
+	stream, err := tx.stream.Load(aud)
+	if err != nil {
+		fmt.Printf("[CAEP] Tx.Transmit failed because stream.Load(%s) %#v\n", aud, err)
+		return fmt.Errorf("invalid rxID(%v) %w", aud, err)
 	}
+	t.Set(jwt.AudienceKey, stream.Aud)
 	t.Set(jwt.IssuedAtKey, time.Now())
-	t.Set(jwt.JwtIDKey, "metyakutya-random")
+	b := make([]byte, 256)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Errorf("cannot generate random bytes %w", err)
+	}
+	jti := base64.RawURLEncoding.EncodeToString(b)
+	t.Set(jwt.JwtIDKey, jti)
 	t.Set("events", event.ToClaim())
 
 	ss, err := jwt.Sign(t, jwa.HS256, []byte("secret-hs-256-key"))
 	if err != nil {
 		return err
 	}
-	fmt.Printf("署名したよ %s\n", ss)
-	for _, recv := range aud {
-		req, err := http.NewRequest(http.MethodPost, recv.StreamConf.Delivery.URL, bytes.NewBuffer(ss))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/secevent+jwt")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return err
-		}
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("respons status code unmatched : %v", resp.Status)
-		}
-		fmt.Printf("送信に成功 recv: %v -> set: %s\n", recv, ss)
+
+	req, err := http.NewRequestWithContext(context, http.MethodPost, stream.Delivery.URL, bytes.NewBuffer(ss))
+	if err != nil {
+		return err
 	}
+	req.Header.Set("Content-Type", "application/secevent+jwt")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Printf("[CAEP] Tx.Transmit failed because http.Do %#v\n", err)
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("[CAEP] Tx.Transmit failed because http.Do statusCode %#v\n", resp.Status)
+		return fmt.Errorf("respons status code unmatched : %v", resp.Status)
+	}
+	fmt.Printf("[CAEP] Tx.Transmit succeeded with event: %#v \n", ss)
 	return nil
 }
 
@@ -339,12 +353,9 @@ type TxError interface {
 type TxErrorCode int
 
 const (
-	_ TxErrorCode = iota + 400
 	// TxErrorUnAuthorized は 401 error
 	// option として *http.Response が含まれるが、Body は読めない
-	TxErrorUnAuthorized
-	_
-	_
+	TxErrorUnAuthorized TxErrorCode = 401
 	// TxErrorNotFound は 404 error
-	TxErrorNotFound
+	TxErrorNotFound TxErrorCode = 403
 )

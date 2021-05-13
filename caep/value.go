@@ -3,15 +3,16 @@ package caep
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"mime"
 	"net/http"
 	"net/url"
 	"path"
 )
 
+const WellKnownPath = "sse-configuration"
+
 // Transmitter は caep Transmitter の設定情報を表す
-type Transmitter struct {
+type TransmitterConf struct {
 	Issuer                   string   `json:"issuer"`
 	JwksURI                  string   `json:"jwks_uri"`
 	SupportedVersions        []string `json:"supported_versions"`
@@ -24,17 +25,14 @@ type Transmitter struct {
 }
 
 // NewTransmitter は caep transmitter の well-known から取得して Trasmitter を構築する
-func NewTransmitter(issuer string) (*Transmitter, error) {
+func NewTransmitterConf(issuer *url.URL) (*TransmitterConf, error) {
 	// well-knoenw url を構築
-	url, err := url.Parse(issuer)
-	if err != nil {
-		log.Printf("CAEP Transmitter の issuer url parse に失敗: %v\n", err)
-		return nil, err
-	}
-	url.Path = path.Join("/.well-known/sse-configuration", url.Path)
+	var ur *url.URL
+	*ur = *issuer
+	ur.Path = path.Join("/.well-known", WellKnownPath, ur.Path)
 
 	// get method
-	resp, err := http.Get(url.String())
+	resp, err := http.Get(ur.String())
 	if err != nil {
 		return nil, err
 	}
@@ -51,28 +49,18 @@ func NewTransmitter(issuer string) (*Transmitter, error) {
 		return nil, fmt.Errorf("contentType unmached expected application/json but %s", contentType)
 	}
 	// response parse
-	tx := new(Transmitter)
-	if err := json.NewDecoder(resp.Body).Decode(tx); err != nil {
+	tconf := new(TransmitterConf)
+	if err := json.NewDecoder(resp.Body).Decode(tconf); err != nil {
 		return nil, err
 	}
-	if tx.Issuer != issuer {
-		return nil, fmt.Errorf("caep: issuer did not match the issuer returned by provider, expected %q got %q", issuer, tx.Issuer)
+	if tconf.Issuer != issuer.String() {
+		return nil, fmt.Errorf("caep: issuer did not match the issuer returned by provider, expected %q got %q", issuer, tconf.Issuer)
 	}
-	return tx, nil
+	return tconf, nil
 }
 
 // RxID は Receiver の識別子であり、 Transmitter が管理している
 type RxID string
-
-// Receiver は CAEP Transmitter が管理する Receiver 情報を表す
-type Receiver struct {
-	// ID は Transmitter における Receiver の識別子
-	ID RxID
-	// Host は Receiver のホスト名
-	Host string
-	// StreamConf は最も最近の Stream COnfig 情報を持つ
-	StreamConf *StreamConfig
-}
 
 // StreamStatus は caep.EventStreamStatus を表す
 type StreamStatus struct {
@@ -96,8 +84,8 @@ type ReqChangeOfStreamStatus struct {
 
 // StreamConfig は caep.EventStreamConfiguration を表す
 type StreamConfig struct {
-	Iss      string   `json:"iss"`
-	Aud      []string `json:"aud"`
+	Iss      string `json:"iss"`
+	Aud      string `json:"aud"`
 	Delivery struct {
 		DeliveryMethod string `json:"delivery_method"`
 		URL            string `json:"url"`
@@ -109,7 +97,7 @@ type StreamConfig struct {
 
 // Update は StreamConfig を引数のもので上書きする
 // 上書きした結果、元の StreamConfig から変更があると ismodified が true になる
-func (c *StreamConfig) Update(n *StreamConfig) (ismodified bool) {
+func (c *StreamConfig) update(n *StreamConfig) (ismodified bool) {
 	if n.Iss != "" && n.Iss != c.Iss {
 		c.Iss = n.Iss
 	}
@@ -261,4 +249,13 @@ func (e *Event) ToClaim() map[string]map[string]interface{} {
 	return map[string]map[string]interface{}{
 		string(e.Type): a,
 	}
+}
+
+func contains(src []string, x string) bool {
+	for _, name := range src {
+		if name == x {
+			return true
+		}
+	}
+	return false
 }
