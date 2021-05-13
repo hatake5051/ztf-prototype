@@ -8,9 +8,6 @@ services:
     - "443:443"
     volumes:
     - /var/run/docker.sock:/tmp/docker.sock:ro
-    - type: bind
-      source: "certs"
-      target: "/etc/nginx/certs"
     networks:
     - reverse-proxy-net
 
