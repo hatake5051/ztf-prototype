@@ -137,6 +137,7 @@ type AuthZSrvConf struct {
 	TokenURL      string `json:"token_endpoint"`
 	RRegURL       string `json:"resource_registration_endpoint"`
 	PermissionURL string `json:"permission_endpoint"`
+	JwksURI       string `json:"jwks_uri"`
 }
 
 // NewAuthZSrv は issuer の well-known エンドポイントにアクセスして認可サーバの情報を取得する

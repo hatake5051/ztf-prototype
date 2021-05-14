@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 
+	"github.com/lestrrat-go/jwx/jwk"
+	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -61,6 +64,8 @@ type ResSrv interface {
 	List(context context.Context, owner SubAtResSrv) (resIDList []string, err error)
 	// PermissionTicket は reses にアクセスを求めている情報をまとめて Permission Ticket に変換する
 	PermissionTicket(context context.Context, reses []ResReqForPT) (*PermissionTicket, error)
+	//
+	VerifyAuthorizationHeader(authHeader string) (jwt.Token, error)
 }
 
 // PATClientStore は リソースサーバで使用する PAT Client のデータ保存先
@@ -81,6 +86,22 @@ type ressrv struct {
 	host  *url.URL
 	authZ *AuthZSrvConf
 	pat   *patcli
+}
+
+// verifyHeader は HTTP Authorization Header に Bearer JWT があることを想定して、そのトークンの検証を行う。
+// 検証に成功すると、パースした結果として jwt.Token を返す
+func (u *ressrv) VerifyAuthorizationHeader(authHeader string) (jwt.Token, error) {
+	// authHeader は "Bearer <Token>" の形
+	hh := strings.Split(authHeader, " ")
+	if len(hh) != 2 && hh[0] != "Bearer" {
+		return nil, fmt.Errorf("authheader のフォーマットがおかしい %s", authHeader)
+	}
+	// Token の検証を行う
+	jwkset, err := jwk.FetchHTTP(u.authZ.JwksURI)
+	if err != nil {
+		return nil, err
+	}
+	return jwt.ParseString(hh[1], jwt.WithKeySet(jwkset))
 }
 
 func (u *ressrv) CallbackForPAT(owner SubAtResSrv, r *http.Request) error {

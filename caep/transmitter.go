@@ -43,16 +43,16 @@ type Tx interface {
 
 // RxRepo は Transmitter が管理している Receiver を永続化する
 type StreamConfigRepo interface {
-	// Load は RxID に対応する Receiver の設定情報を読み出す
-	Load(RxID) (*StreamConfig, error)
-	// Save は Reveiver の設定情報を保存する
-	Save(RxID, *StreamConfig) error
+	// LoadStream は RxID に対応する Receiver の設定情報を読み出す
+	LoadStream(RxID) (*StreamConfig, error)
+	// SaveStream は Reveiver の設定情報を保存する
+	SaveStream(RxID, *StreamConfig) error
 }
 
 // SubStatusRepo は Transmitter が管轄している Receiver のサブジェクトごとの status を永続化する
 type SubStatusRepo interface {
-	Load(RxID, *EventSubject) (*StreamStatus, error)
-	Save(RxID, *StreamStatus) error
+	LoadStatus(RxID, *EventSubject) (*StreamStatus, error)
+	SaveStatus(RxID, *StreamStatus) error
 }
 
 // Verifier は Receiver が Event Stream Management API を叩く時の認可情報を検証する
@@ -119,7 +119,7 @@ func (tx *tx) ReadStreamStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "get stream status の subject クエリが正しくないフォーマット"+err.Error(), http.StatusBadRequest)
 		return
 	}
-	status, err := tx.status.Load(rxID, sub)
+	status, err := tx.status.LoadStatus(rxID, sub)
 	if err != nil {
 		fmt.Printf("[CAEP] Tx.ReadStreamStatus failed because not found %#v\n", err)
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -164,7 +164,7 @@ func (tx *tx) UpdateStreamStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	if err := tx.status.Save(rxID, status); err != nil {
+	if err := tx.status.SaveStatus(rxID, status); err != nil {
 		fmt.Printf("[CAEP] Tx.UpdatetreamStatus failed because status.Save(%s,%v) %#v\n", rxID, status, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -193,7 +193,7 @@ func (tx *tx) ReadStreamConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	stream, err := tx.stream.Load(rxID)
+	stream, err := tx.stream.LoadStream(rxID)
 	if err != nil {
 		fmt.Printf("[CAEP] Tx.ReadStreamConfig failed because stream.Load(%s) %#v\n", rxID, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -228,7 +228,7 @@ func (tx *tx) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "status update 要求のパースに失敗", http.StatusNotFound)
 		return
 	}
-	stream, err := tx.stream.Load(rxID)
+	stream, err := tx.stream.LoadStream(rxID)
 	if err != nil {
 		fmt.Printf("[CAEP] Tx.UpdatetreamConfig failed because stream.Load(%s) %#v\n", rxID, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -240,7 +240,7 @@ func (tx *tx) UpdateStreamConfig(w http.ResponseWriter, r *http.Request) {
 				stream.EventsDelivered = append(stream.EventsDelivered, e)
 			}
 		}
-		if err := tx.stream.Save(rxID, stream); err != nil {
+		if err := tx.stream.SaveStream(rxID, stream); err != nil {
 			fmt.Printf("[CAEP] Tx.UpdatetreamConfig failed because stream.Save(%s, %v) %#v\n", rxID, stream, err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -294,7 +294,7 @@ func (tx *tx) AddSub(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	if err := tx.status.Save(rxID, status); err != nil {
+	if err := tx.status.SaveStatus(rxID, status); err != nil {
 		fmt.Printf("[CAEP] Tx.AddSub failed because status.Save(%s,%v) %#v\n", rxID, status, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -306,7 +306,7 @@ func (tx *tx) AddSub(w http.ResponseWriter, r *http.Request) {
 func (tx *tx) Transmit(context context.Context, aud RxID, event *Event) error {
 	t := jwt.New()
 	t.Set(jwt.IssuerKey, tx.conf.Issuer)
-	stream, err := tx.stream.Load(aud)
+	stream, err := tx.stream.LoadStream(aud)
 	if err != nil {
 		fmt.Printf("[CAEP] Tx.Transmit failed because stream.Load(%s) %#v\n", aud, err)
 		return fmt.Errorf("invalid rxID(%v) %w", aud, err)

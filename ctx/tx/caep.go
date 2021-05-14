@@ -1,100 +1,119 @@
 package tx
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hatake5051/ztf-prototype/caep"
 	"github.com/hatake5051/ztf-prototype/ctx"
-	"github.com/hatake5051/ztf-prototype/uma"
-	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
 )
 
-func (conf *CAEPConf) new(eventsupported []string, tokenVerificationJWKUrl string, rxDB RxDB, u uma.ResSrv, trans Translater) caep.Tx {
+func (conf *CAEPConf) new(eventsupported []string, u *umaResSrv, notification func(ctx.Sub, []ctx.Type) error, trans TranslaterForCAEP) *caepTx {
+	rxs := &rxDB{trans, notification, sync.RWMutex{}, make(map[caep.RxID]*caep.StreamConfig), make(map[caep.RxID]map[string]struct {
+		status     *caep.StreamStatus
+		expiration time.Time
+	}), make(map[string]map[caep.RxID]bool)}
+
 	for rxID, rx := range conf.Receivers {
-		if err := rxDB.Save(&caep.Receiver{
-			ID:   caep.RxID(rxID),
-			Host: rx.Host,
-			StreamConf: &caep.StreamConfig{
-				Iss:             conf.Metadata.Issuer,
-				Aud:             []string{rx.Host},
-				EventsSupported: eventsupported,
-			},
+		if err := rxs.SaveStream(caep.RxID(rxID), &caep.StreamConfig{
+			Iss:             conf.Metadata.Issuer,
+			Aud:             rx.Host,
+			EventsSupported: eventsupported,
 		}); err != nil {
 			panic("rxDB の構築に失敗" + err.Error())
 		}
 	}
-
-	return conf.to().New(
-		rxDB, &statusRepo{rxDB}, &addsubverifier{verifier{tokenVerificationJWKUrl}, u, trans},
-	)
-
+	v := &verifier{u, rxs, trans}
+	return &caepTx{conf.to().New(rxs, rxs, v), rxs, trans}
 }
 
-type statusRepo struct {
-	innner RxDB
+type caepTx struct {
+	caep  caep.Tx
+	rxDB  *rxDB
+	trans TranslaterForCAEP
 }
 
-var _ caep.SubStatusRepo = &statusRepo{}
-
-func (db *statusRepo) Load(rxID caep.RxID, sub *caep.EventSubject) (*caep.StreamStatus, error) {
-	return db.innner.LoadStatus(rxID, sub)
-}
-
-func (db *statusRepo) Save(rxID caep.RxID, status *caep.StreamStatus) error {
-	return db.innner.SaveStatus(rxID, status)
+func (tx *caepTx) Transmit(context context.Context, c ctx.Ctx) error {
+	auds := tx.rxDB.auds(c.Type())
+	et := tx.trans.EventType(c.Type())
+	for aud := range auds {
+		esub, err := tx.trans.EventSubject(c.ID(), aud)
+		if err != nil {
+			return err
+		}
+		status, err := tx.rxDB.LoadStatus(aud, esub)
+		if err != nil {
+			return err
+		}
+		props := make(map[caep.EventScope]string)
+		for _, es := range status.EventScopes[et] {
+			css, err := tx.trans.CtxScopes(et, []caep.EventScope{es})
+			if err != nil {
+				return err
+			}
+			props[es] = c.Value(css[0])
+		}
+		e := &caep.Event{
+			Type:     et,
+			Subject:  esub,
+			Property: props,
+		}
+		if err := tx.caep.Transmit(context, aud, e); err != nil {
+			return fmt.Errorf("送信に失敗 Rx(%v) e(%v) because %v\n", aud, e, err)
+		}
+	}
+	return nil
 }
 
 // addsubverifier は caep.verifier を満たす
-type addsubverifier struct {
-	verifier
-	uma   uma.ResSrv
-	trans Translater
+type verifier struct {
+	uma   *umaResSrv
+	rxs   *rxDB
+	trans TranslaterForCAEP
 }
 
-var _ caep.Verifier = &addsubverifier{}
+var _ caep.Verifier = &verifier{}
 
-func (v *addsubverifier) AddSub(authHeader string, req *caep.ReqAddSub) (caep.RxID, *caep.StreamStatus, error) {
-	tok, err := v.verifyHeader(authHeader)
+func (v *verifier) AddSub(authHeader string, req *caep.ReqAddSub) (caep.RxID, *caep.StreamStatus, error) {
+	tok, err := v.uma.uma.VerifyAuthorizationHeader(authHeader)
 	if err != nil {
-		// RPT トークンがない -> UMA Grant Flow を始める
-		var reqs []uma.ResReqForPT
-		for _, opts := range req.ReqEventScopes {
-			var ss []string
-			for _, s := range opts.Scopes {
-				ss = append(ss, string(s))
-			}
-			resID, err := v.trans.ResID(ctx.NewCtxID(opts.EventID))
-			if err != nil {
-				fmt.Printf("AddSub で EventID -> ResID の変換に失敗 %v\n", err)
-				return "", nil, fmt.Errorf("AddSub で EventID -> ResID の変換に失敗 %v\n", err)
-			}
-			req := uma.ResReqForPT{
-				ID:     resID,
-				Scopes: ss,
-			}
-			reqs = append(reqs, req)
+		var ctxReq []struct {
+			id     ctx.ID
+			scopes []ctx.Scope
 		}
-		pt, err := v.uma.PermissionTicket(reqs)
-		if err != nil {
+		for et, r := range req.ReqEventScopes {
+			id, err := v.trans.CtxID(r.EventID)
+			if err != nil {
+				return "", nil, err
+			}
+			scopes, err := v.trans.CtxScopes(et, r.Scopes)
+			if err != nil {
+				return "", nil, err
+			}
+			ctxReq = append(ctxReq, struct {
+				id     ctx.ID
+				scopes []ctx.Scope
+			}{id, scopes})
+		}
+		if err := v.uma.permissionTicket(context.Background(), ctxReq); err != nil {
 			return "", nil, err
 		}
-		s := fmt.Sprintf(`UMA realm="%s",as_uri="%s",ticket="%s"`, pt.InitialOption.ResSrv, pt.InitialOption.AuthZSrv, pt.Ticket)
-		m := map[string]string{"WWW-Authenticate": s}
-		return caep.RxID(""), nil, newTrEO(fmt.Errorf("UMA NoRPT"), caep.TxErrorUnAuthorized, m)
 	}
 	rxID, ok := extractRxIDFromToken(tok)
 	if !ok {
 		return caep.RxID(""), nil, fmt.Errorf("RxID を RPT から取得できなかった %#v", tok)
 	}
-	for _, opt := range req.ReqEventScopes {
-		resID, err := v.trans.ResID(ctx.NewCtxID(opt.EventID))
+	for _, r := range req.ReqEventScopes {
+		ctxID, err := v.trans.CtxID(r.EventID)
 		if err != nil {
-			fmt.Printf("AddSub で EventID -> ResID の変換に失敗 %v\n", err)
+			fmt.Printf("AddSub で EventID -> ctxID の変換に失敗 %v\n", err)
 			return "", nil, fmt.Errorf("AddSub で EventID -> ResID の変換に失敗 %v\n", err)
 		}
-		if err := v.trans.BindEventSubjectToResID(rxID, req.Subject, resID); err != nil {
+		if err := v.trans.BindEventSubjectToCtxID(rxID, req.Subject, ctxID); err != nil {
 			return rxID, nil, fmt.Errorf("uma.ResID と PID の紐付けに失敗" + err.Error())
 		}
 	}
@@ -107,16 +126,14 @@ func (v *addsubverifier) AddSub(authHeader string, req *caep.ReqAddSub) (caep.Rx
 		Subject:     *req.Subject,
 		EventScopes: eventscopes,
 	}
+	if err := v.rxs.setExpiration(rxID, req.Subject, tok.Expiration()); err != nil {
+		fmt.Printf("cannot settign expiration %v\n", err)
+	}
 	return rxID, status, nil
 }
 
-// verifier は caep.Verifier のうち、 Stream と Status を実装する
-type verifier struct {
-	jwtURL string
-}
-
 func (v *verifier) Stream(authHeader string) (caep.RxID, error) {
-	tok, err := v.verifyHeader(authHeader)
+	tok, err := v.uma.uma.VerifyAuthorizationHeader(authHeader)
 	if err != nil {
 		return caep.RxID(""), err
 	}
@@ -128,7 +145,7 @@ func (v *verifier) Stream(authHeader string) (caep.RxID, error) {
 }
 
 func (v *verifier) Status(authHeader string, req *caep.ReqChangeOfStreamStatus) (caep.RxID, *caep.StreamStatus, error) {
-	tok, err := v.verifyHeader(authHeader)
+	tok, err := v.uma.uma.VerifyAuthorizationHeader(authHeader)
 	if err != nil {
 		return caep.RxID(""), nil, err
 	}
@@ -141,22 +158,6 @@ func (v *verifier) Status(authHeader string, req *caep.ReqChangeOfStreamStatus) 
 		return rxID, &req.StreamStatus, nil
 	}
 	return rxID, nil, nil
-}
-
-// verifyHeader は HTTP Authorization Header に Bearer JWT があることを想定して、そのトークンの検証を行う。
-// 検証に成功すると、パースした結果として jwt.Token を返す
-func (v *verifier) verifyHeader(authHeader string) (jwt.Token, error) {
-	// authHeader は "Bearer <Token>" の形
-	hh := strings.Split(authHeader, " ")
-	if len(hh) != 2 && hh[0] != "Bearer" {
-		return nil, fmt.Errorf("authheader のフォーマットがおかしい %s", authHeader)
-	}
-	// Token の検証を行う
-	jwkset, err := jwk.FetchHTTP(v.jwtURL)
-	if err != nil {
-		return nil, err
-	}
-	return jwt.ParseString(hh[1], jwt.WithKeySet(jwkset))
 }
 
 // extractRxIDFromToken は jwt.Token の azp クレームから Receiver ID を取得する。
@@ -207,82 +208,127 @@ func permittedEventScopesFromToken(tok jwt.Token) (map[caep.EventType][]caep.Eve
 	return eventscopes, nil
 }
 
-// // trStreamDB は Transmitter の Receiver 情報を保存するデータベース
-// type trStreamDB struct {
-// 	m  sync.RWMutex
-// 	db map[caep.RxID]caep.Receiver
-// }
+type rxDB struct {
+	trans        TranslaterForCAEP
+	notification func(ctx.Sub, []ctx.Type) error
+	m            sync.RWMutex
+	stream       map[caep.RxID]*caep.StreamConfig
+	status       map[caep.RxID]map[string]struct {
+		status     *caep.StreamStatus
+		expiration time.Time
+	}
 
-// var _ caep.RxRepo = &trStreamDB{}
-
-// func (db *trStreamDB) Load(recvID caep.RxID) (*caep.Receiver, error) {
-// 	db.m.RLock()
-// 	defer db.m.RUnlock()
-// 	recv, ok := db.db[recvID]
-// 	if !ok {
-// 		return nil, fmt.Errorf("recvID(%s) は登録されてません", recvID)
-// 	}
-// 	return &recv, nil
-// }
-
-// func (db *trStreamDB) Save(recv *caep.Receiver) error {
-// 	db.m.Lock()
-// 	defer db.m.Unlock()
-// 	db.db[recv.ID] = *recv
-// 	return nil
-// }
-
-// type trStatusDB struct {
-// 	m  sync.RWMutex
-// 	db map[caep.RxID]map[string]caep.StreamStatus
-// }
-
-// var _ caep.SubStatusRepo = &trStatusDB{}
-
-// func (db *trStatusDB) Load(rxID caep.RxID, sub *caep.EventSubject) (*caep.StreamStatus, error) {
-// 	db.m.RLock()
-// 	defer db.m.RUnlock()
-// 	subs, ok := db.db[rxID]
-// 	if !ok || subs == nil {
-// 		return nil, fmt.Errorf("recvID(%s) にはまだ status が一つもない", rxID)
-// 	}
-// 	status, ok := subs[sub.Identifier()]
-// 	if !ok {
-// 		return nil, fmt.Errorf("recvID(%s) には spagID(%v) のステータスがない", rxID, sub)
-// 	}
-// 	return &status, nil
-// }
-
-// func (db *trStatusDB) Save(rxID caep.RxID, status *caep.StreamStatus) error {
-// 	db.m.Lock()
-// 	defer db.m.Unlock()
-// 	subs, ok := db.db[rxID]
-// 	if !ok || subs == nil {
-// 		subs = make(map[string]caep.StreamStatus)
-// 		db.db[rxID] = subs
-// 	}
-// 	subs[status.Subject.Identifier()] = *status
-// 	return nil
-// }
-
-func newTrE(err error, code caep.TxErrorCode) caep.TxError {
-	return &tre{err, code, nil}
+	rxIDs map[string]map[caep.RxID]bool
 }
 
-func newTrEO(err error, code caep.TxErrorCode, opt interface{}) caep.TxError {
-	return &tre{err, code, opt}
+var _ caep.StreamConfigRepo = &rxDB{}
+var _ caep.SubStatusRepo = &rxDB{}
+
+func (rxs *rxDB) auds(ct ctx.Type) map[caep.RxID]bool {
+	rxs.m.RLock()
+	defer rxs.m.RUnlock()
+	return rxs.rxIDs[ct.String()]
 }
 
-type tre struct {
-	error
-	code caep.TxErrorCode
-	opt  interface{}
+func (rxs *rxDB) setExpiration(rxID caep.RxID, esub *caep.EventSubject, expiraiton time.Time) error {
+	rxs.m.Lock()
+	defer rxs.m.Unlock()
+	v, ok := rxs.status[rxID]
+	if !ok {
+		v = make(map[string]struct {
+			status     *caep.StreamStatus
+			expiration time.Time
+		})
+	}
+	s, ok := v[esub.Identifier()]
+	if !ok {
+		s = struct {
+			status     *caep.StreamStatus
+			expiration time.Time
+		}{}
+	}
+	s.expiration = expiraiton
+	v[esub.Identifier()] = s
+	rxs.status[rxID] = v
+	return nil
 }
 
-func (e *tre) Code() caep.TxErrorCode {
-	return e.code
+func (rxs *rxDB) LoadStatus(rxID caep.RxID, esub *caep.EventSubject) (*caep.StreamStatus, error) {
+	rxs.m.RLock()
+	defer rxs.m.RUnlock()
+	v, ok := rxs.status[rxID]
+	if !ok {
+		return nil, fmt.Errorf("")
+	}
+	s, ok := v[esub.Identifier()]
+	if !ok {
+		return nil, fmt.Errorf("")
+	}
+	if !s.expiration.IsZero() {
+		if time.Now().Before(s.expiration.Round(0).Add(10 * time.Second)) {
+			s.status.Status = "disabled"
+			return s.status, nil
+		}
+	}
+	return s.status, nil
 }
 
-func (e *tre) Option() interface{} {
-	return e.opt
+func (rxs *rxDB) SaveStatus(rxID caep.RxID, status *caep.StreamStatus) error {
+	rxs.m.Lock()
+	defer rxs.m.Unlock()
+	v, ok := rxs.status[rxID]
+	if !ok {
+		v = make(map[string]struct {
+			status     *caep.StreamStatus
+			expiration time.Time
+		})
+	}
+	s, ok := v[status.Subject.Identifier()]
+	if !ok {
+		s = struct {
+			status     *caep.StreamStatus
+			expiration time.Time
+		}{}
+	}
+	s.status = status
+	v[status.Subject.Identifier()] = s
+	rxs.status[rxID] = v
+	cs, err := rxs.trans.CtxSub(rxID, &status.Subject)
+	if err != nil {
+		return err
+	}
+	var cts []ctx.Type
+	for et := range status.EventScopes {
+		cts = append(cts, rxs.trans.CtxType(et))
+	}
+	if err := rxs.notification(cs, cts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (rxs *rxDB) LoadStream(rxID caep.RxID) (*caep.StreamConfig, error) {
+	rxs.m.RLock()
+	defer rxs.m.RUnlock()
+	c, ok := rxs.stream[rxID]
+	if !ok {
+		return nil, fmt.Errorf("cannot find stream config of Rx(%v)", rxID)
+	}
+	return c, nil
+}
+
+func (rxs *rxDB) SaveStream(rxID caep.RxID, stream *caep.StreamConfig) error {
+	rxs.m.Lock()
+	defer rxs.m.Unlock()
+	rxs.stream[rxID] = stream
+	for _, et := range stream.EventsDelivered {
+		ct := rxs.trans.CtxType(caep.EventType(et))
+		auds, ok := rxs.rxIDs[ct.String()]
+		if !ok {
+			auds = make(map[caep.RxID]bool)
+		}
+		auds[rxID] = true
+		rxs.rxIDs[ct.String()] = auds
+	}
+	return nil
 }

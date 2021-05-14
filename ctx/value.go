@@ -23,12 +23,9 @@ type Type interface {
 	CAEPEventType() caep.EventType
 }
 
-func NewCtxSub(raw string) Sub {
-	return &t{raw}
-}
-
 type Sub interface {
 	String() string
+	PreferredName() string
 	UMAResSrv() uma.SubAtResSrv
 	Options() map[string]string
 }
@@ -53,7 +50,6 @@ type Ctx interface {
 	Name() string
 
 	ID() ID
-	IDAtAuthZSrv() string
 	Sub() Sub
 	Value(Scope) string
 }

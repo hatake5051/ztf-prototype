@@ -1,7 +1,7 @@
 package tx
 
 import (
-	"fmt"
+	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -10,20 +10,58 @@ import (
 	"github.com/hatake5051/ztf-prototype/uma"
 )
 
-func (conf *Conf) New(rxDB RxDB, ctxDB CtxDB, trans Translater, store SessionStore) Tx {
-	umaressrv := conf.UMA.to().New(&ressrvDB{})
-	u := &umaResSrv{
-		umaressrv, store, ctxDB, trans,
-	}
+// New は tx.Conf の内容から tx.Tx を構築する。
+// Tx は uma.ResSrv と caep.Transmitter からなり、
+// それぞれを構築するための必要な引数を渡す。
+func (conf *Conf) New(uma struct {
+	Store SessionStoreForUMA
+	Ctxs  CtxDBForUMA
+	Trans TranslaterForUMA
+}, caep struct {
+	Notification func(ctx.Sub, []ctx.Type) error
+	Trans        TranslaterForCAEP
+}) Tx {
+	u := conf.UMA.new(uma.Store, uma.Ctxs, uma.Trans)
 
 	var eventsupported []string
 	for ct := range conf.Contexts {
 		eventsupported = append(eventsupported, ct)
 	}
-	c := conf.CAEP.new(eventsupported, conf.UMA.JwksURI, rxDB, umaressrv, trans)
-	return &tx{
-		rxDB, trans, c, u,
-	}
+	c := conf.CAEP.new(eventsupported, u, caep.Notification, caep.Trans)
+	return &tx{c, u}
+}
+
+// TranslaterForCAEP は caep.Transmitter を動かす上で必要な変換を担う。
+type TranslaterForCAEP interface {
+	CtxID(eventID string) (ctx.ID, error)
+	EventType(ctx.Type) caep.EventType
+	CtxType(caep.EventType) ctx.Type
+	CtxSub(caep.RxID, *caep.EventSubject) (ctx.Sub, error)
+	EventSubject(ctx.ID, caep.RxID) (*caep.EventSubject, error)
+	CtxScopes(t caep.EventType, scopes []caep.EventScope) ([]ctx.Scope, error)
+	BindEventSubjectToCtxID(caep.RxID, *caep.EventSubject, ctx.ID) error
+}
+
+// UMAResSrv で使うセッションを管理する sessionStore
+type SessionStoreForUMA interface {
+	// IdentifySubject は今現在アクセスしてきているサブジェクトの識別子を返す
+	IdentifySubject(r *http.Request) (ctx.Sub, error)
+	// LoadRedirectBack はセッションに紐づいて保存しておいたリダイレクトURLを返す
+	LoadAndDeleteRedirectBack(r *http.Request) (redirectURL string)
+	// SetRedirectBack はセッションに次進むべきURLを保存する
+	SetRedirectBack(r *http.Request, w http.ResponseWriter, redirectURL string) error
+}
+
+type CtxDBForUMA interface {
+	LoadAllOfSub(ctx.Sub) ([]ctx.Ctx, error)
+	LoadCtxOfSub(ctx.Sub, ctx.Type) (ctx.Ctx, error)
+}
+
+type TranslaterForUMA interface {
+	Res(ctx.Ctx) (*uma.Res, error)
+	BindResToCtx(*uma.Res, ctx.Ctx) error
+	ReBindRes(*uma.Res) error
+	ResReq(ctx.ID, []ctx.Scope) (uma.ResReqForPT, error)
 }
 
 // Tx は ZTF でコンテキストを送信する機能を提供する
@@ -35,47 +73,22 @@ type Tx interface {
 	// CAEP transmitter のエンドポイントと、 UMA resource server のエンドポイントを生やす。
 	Router(r *mux.Router) (statefulPaths []string)
 	// Transmit はコンテキストを適切なコンテキスト受信者に送信する。
-	Transmit(c ctx.Ctx) error
-}
-
-type RxDB interface {
-	Load(rxID caep.RxID) (*caep.Receiver, error)
-	Save(recv *caep.Receiver) error
-	Auds(ct ctx.Type) ([]caep.Receiver, error)
-
-	LoadStatus(rxID caep.RxID, sub *caep.EventSubject) (*caep.StreamStatus, error)
-	SaveStatus(rxID caep.RxID, status *caep.StreamStatus) error
-}
-
-type CtxDB interface {
-	// LoadCtx は Sub と ctx を指定してそのコンテキストを受け取る
-	LoadCtx(ctx.Sub, ctx.Type) (ctx.Ctx, error)
-	LoadAll(ctx.Sub) ([]ctx.Ctx, error)
-}
-
-type Translater interface {
-	CtxSub(*caep.EventSubject, caep.RxID, ctx.Type) (ctx.Sub, error)
-	EventSubject(ctx.Sub, ctx.Type, caep.RxID) (*caep.EventSubject, error)
-	ResID(ctx.ID) (uma.ResID, error)
-	BindEventSubjectToResID(caep.RxID, *caep.EventSubject, uma.ResID) error
-	BindResIDToSub(uma.ResID, ctx.Sub, ctx.Type) error
+	Transmit(context context.Context, c ctx.Ctx) error
 }
 
 type tx struct {
-	rxDB  RxDB
-	trans Translater
-	c     caep.Tx
-	u     *umaResSrv
+	c *caepTx
+	u *umaResSrv
 }
 
 var _ Tx = &tx{}
 
 func (tx *tx) WellKnown() (string, http.HandlerFunc) {
-	return "/sse-configuration", tx.c.WellKnown
+	return "/sse-configuration", tx.c.caep.WellKnown
 }
 
 func (tx *tx) Router(r *mux.Router) []string {
-	tx.c.Router(r)
+	tx.c.caep.Router(r)
 	u := r.PathPrefix("/uma").Subrouter()
 	u.HandleFunc("/list", tx.u.list)
 	u.HandleFunc("/ctx", tx.u.crud)
@@ -84,39 +97,6 @@ func (tx *tx) Router(r *mux.Router) []string {
 	return []string{"/uma/list", "/uma/ctx", "/uma/pat/callback"}
 }
 
-func (tx *tx) Transmit(c ctx.Ctx) error {
-	recvs, err := tx.rxDB.Auds(c.Type())
-	if err != nil {
-		return fmt.Errorf("tx.rxDB.Auds in tx.Transmit で失敗 %v", err)
-	}
-	for _, recv := range recvs {
-		aud := []caep.Receiver{recv}
-
-		sub, err := tx.trans.EventSubject(c.Sub(), c.Type(), recv.ID)
-		if err != nil {
-			return fmt.Errorf("Receiver(%v) は sub(%v) を登録していない %v", recv, c.Sub(), err)
-		}
-		status, err := tx.rxDB.LoadStatus(recv.ID, sub)
-		if err != nil {
-			return fmt.Errorf("Receiver(%v) には sub(%v) が登録されてないみたい %v", recv, sub, err)
-		}
-		if status.Status != "enabled" {
-			return fmt.Errorf("Receiver(%v) の sub(%v) の status(%v) が enabled でない", recv, sub, status)
-		}
-		authorizedScopes := status.EventScopes[c.Type().CAEPEventType()]
-		prop := make(map[caep.EventScope]string)
-		for _, scope := range authorizedScopes {
-			prop[scope] = c.Value(ctx.NewCtxScopeFromCAEPEventScope(scope))
-		}
-
-		ev := &caep.Event{
-			Type:     c.Type().CAEPEventType(),
-			Subject:  sub,
-			Property: prop,
-		}
-		if err := tx.c.Transmit(aud, ev); err != nil {
-			return fmt.Errorf("送信に失敗 to Rx(%v) %v because %v\n", recv, ev, err)
-		}
-	}
-	return nil
+func (tx *tx) Transmit(context context.Context, c ctx.Ctx) error {
+	return tx.c.Transmit(context, c)
 }
